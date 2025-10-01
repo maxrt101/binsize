@@ -2,6 +2,23 @@
 name = "binsize"
 version = "0.1.0"
 edition = "2024"
+authors = [
+    "Max Tkachuk <max.r.tkachuk@gmail.com>"
+]
+description = "A utility to provide comprehensive information about symbol sizes in compiled binaries"
+readme = "README.md"
+keywords = [
+    "cli",
+    "bloat",
+    "size",
+    "binary-size",
+    "memory-usage",
+]
+categories = [
+    "command-line-utilities"
+]
+license = "MIT"
+repository = "https://github.com/maxrt101/binsize"
 
 [dependencies]
 json = "0.12.4"
