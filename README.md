@@ -1,4 +1,4 @@
-# `binsize`
+# binsize
 
 `binsize` is a command-line utility that provides analysis of size/memory usage of rust  
 binaries. It was inspired by `cargo-bloat`, but with a different approach to retrieving  
