@@ -121,6 +121,7 @@ Here's an example of such config:
 color = true
 profile = "release"
 file = "target/release/app"
+ld-file = "boards/stm32l051/memory.x"
 filter = "std"
 sort = "asc"
 width = 100
