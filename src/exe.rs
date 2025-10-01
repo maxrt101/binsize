@@ -49,7 +49,13 @@ pub struct Symbol {
 
 /// Represents a section in an executable (`.text`/`.data`/etc.)
 pub struct Section {
+    /// Section name
     pub name: String,
+
+    /// Section address
+    pub addr: usize,
+
+    /// Section size
     pub size: usize,
 }
 
@@ -145,6 +151,7 @@ pub fn parse(path: &std::path::Path) -> Result<ExecutableInfo, Box<dyn std::erro
             |s| Section {
                 // TODO: Should add section type (`PROGBITS`/`NOBITS`/etc.) to filter later on
                 name: s.name().unwrap_or("?").to_string(),
+                addr: s.address() as usize,
                 size: s.size() as usize,
             }
         )
