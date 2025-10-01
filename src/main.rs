@@ -170,7 +170,7 @@ fn main() {
                 file = Some(val.clone());
             }
 
-            if let Some(toml::Value::String(val)) = binsize.get("file") {
+            if let Some(toml::Value::String(val)) = binsize.get("filter") {
                 filter = val.clone();
             }
 
