@@ -6,7 +6,7 @@
 use std::error::Error;
 use std::fmt::Display;
 use std::sync::OnceLock;
-use crate::exe::LoadSegment;
+use crate::exe::Segment;
 
 /// Compiled regex pattern for matching memory region declaration under MEMORY in LD scripts
 static MEM_REG_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
@@ -127,7 +127,7 @@ impl MemoryRegion {
 
     /// Uses program headers (LOAD segments) from parsed binary to enrich regions, parsed from
     /// linker script, with actual usage data
-    pub fn use_segments_data(regions: &mut Vec<MemoryRegion>, segments: &Vec<LoadSegment>) {
+    pub fn use_segments_data(regions: &mut Vec<MemoryRegion>, segments: &Vec<Segment>) {
         for reg in regions.iter_mut() {
             let (start, end) = reg.bounds();
 

@@ -54,7 +54,7 @@ pub struct Section {
 }
 
 /// Represents a Program Header (Segment)
-pub struct LoadSegment {
+pub struct Segment {
     /// Address of segment
     pub addr: usize,
 
@@ -66,7 +66,7 @@ pub struct LoadSegment {
 pub struct ExecutableInfo {
     pub symbols: Vec<Symbol>,
     pub sections: Vec<Section>,
-    pub segments: Vec<LoadSegment>,
+    pub segments: Vec<Segment>,
 }
 
 impl ExecutableInfo {
@@ -133,7 +133,7 @@ pub fn parse(path: &std::path::Path) -> Result<ExecutableInfo, Box<dyn std::erro
 
     let segments = exe.segments()
         .map(
-            |s| LoadSegment {
+            |s| Segment {
                 size: s.size() as usize,
                 addr: s.address() as usize,
             }
