@@ -28,7 +28,7 @@ Or build manually: clone the repo, run `cargo build`, enjoy :)
 
 Navigate to you project (folder containing `Cargo.toml`) and run:  
 
-```
+```shell
 $ binsize
 ```
 
@@ -42,20 +42,20 @@ You should see a table with columns:
 If you want to analyze artifact, produced with a different cargo profile, use `--profile`/`-p`
 flag:  
 
-```
+```shell
 $ binsize -p release
 ```
 
 If you want to skip building through cargo, or want to analyze some other binary, pass a path
 to said file using `--file`:  
 
-```
+```shell
 $ binsize --file ~/projects/super-cool-project/target/release/super-cool-project
 ```
 
 If you want to enable colored output, use `--color`/`-c` flag:  
 
-```
+```shell
 $ binsize -c
 ```
 
@@ -64,20 +64,20 @@ yellow or red. This serves as a visual indicator, of a symbol being too large. T
 symbol's size/percentage to become yellow/red can be overridden using `--size-threshold` and  
 `--percentage-threshold`:
 
-```
+```shell
 $ binsize --percentage-threshold 1.2 5.0 --size-threshold 500 1200
 ```
 
 If some symbol has too big of a name, and it got trimmed, you can use `--width`/`-w` to increase  
 (or decrease) maximal width of symbol name:  
 
-```
+```shell
 $ binsize -c 120
 ```
 
 If you want to sort symbols by size, use `--asc`/`-a` or `--desc`/`-d`:  
 
-```
+```shell
 $ binsize --asc
 ```
 
@@ -87,7 +87,7 @@ So `binsize` provides a way to get that information, albeit not without user inp
 memory region usage, you must pass a path to linker script, which has a `MEMORY` declaration,  
 like this:  
 
-```
+```ld
 MEMORY
 {
   FLASH : ORIGIN = 0x8000000,  LENGTH = 64K
@@ -97,7 +97,7 @@ MEMORY
 
 The `--ld-memory-map`/`-l` is used to pass the path:  
 
-```
+```shell
 $ binsize -l boards/stm32l051/memory.x
 ```
 
@@ -116,7 +116,7 @@ Note: If memory region ORIGIN is not in hexadecimal, or LENGTH is not declared a
 `binsize` also support persistent configuration stored in `.cargo/binsize.toml`  
 Here's an example of such config:  
 
-```
+```toml
 [binsize]
 color = true
 profile = "release"
