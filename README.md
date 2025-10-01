@@ -102,3 +102,20 @@ After running this, you'll get a table at the very bottom of the output with col
 
 Note: If memory region ORIGIN is not in hexadecimal, or LENGTH is not declared as  
 `<base 10 int>K`, linker script parsing will fail, this is known limitation right now  
+
+## Config
+
+`binsize` also support persistent configuration stored in `.cargo/binsize.toml`  
+Here's an example of such config:  
+
+```
+[binsize]
+color = true
+profile = "release"
+file = "target/release/app"
+filter = "std"
+sort = "asc"
+width = 100
+size-threshold = [5000, 10000]
+percentage-threshold = [0.5, 1.0]
+```
