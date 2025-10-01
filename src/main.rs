@@ -15,7 +15,7 @@
 //!
 //! Navigate to you project (folder containing `Cargo.toml`) and run
 //!
-//! ```
+//! ```rust,ignore
 //! $ binsize
 //! ```
 //!
@@ -30,20 +30,20 @@
 //! If you want to analyze artifact, produced with a different cargo profile, use `--profile`/`-p`
 //! flag:
 //!
-//! ```
+//! ```rust,ignore
 //! $ binsize -p release
 //! ```
 //!
 //! If you want to skip building through cargo, or want to analyze some other binary, pass a path
 //! to said file using `--file`:
 //!
-//! ```
+//! ```rust,ignore
 //! $ binsize --file ~/projects/super-cool-project/target/release/super-cool-project
 //! ```
 //!
 //! If you want to enable colored output, use `--color`/`-c` flag:
 //!
-//! ```
+//! ```rust,ignore
 //! $ binsize -c
 //! ```
 //!
@@ -52,20 +52,20 @@
 //! symbol's size/percentage to become yellow/red can be overridden using `--size-threshold` and
 //! `--percentage-threshold`:
 //!
-//! ```
+//! ```rust,ignore
 //! $ binsize --percentage-threshold 1.2 5.0 --size-threshold 500 1200
 //! ```
 //!
 //! If some symbol has too big of a name, and it got trimmed, you can use `--width`/`-w` to increase
 //! (or decrease) maximal width of symbol name:
 //!
-//! ```
+//! ```rust,ignore
 //! $ binsize -c 120
 //! ```
 //!
 //! If you want to sort symbols by size, use `--asc`/`-a` or `--desc`/`-d`:
 //!
-//! ```
+//! ```rust,ignore
 //! $ binsize --asc
 //! ```
 //!
@@ -75,7 +75,7 @@
 //! memory region usage, you must pass a path to linker script, which has a `MEMORY` declaration,
 //! like this:
 //!
-//! ```
+//! ```rust,ignore
 //! MEMORY
 //! {
 //!   FLASH : ORIGIN = 0x8000000,  LENGTH = 64K
@@ -85,7 +85,7 @@
 //!
 //! The `--ld-memory-map`/`-l` is used to pass the path:
 //!
-//! ```
+//! ```rust,ignore
 //! $ binsize -l boards/stm32l051/memory.x
 //! ```
 //!
@@ -109,6 +109,7 @@
 //! color = true
 //! profile = "release"
 //! file = "target/release/app"
+//! ld-file = "boards/stm32l051/memory.x"
 //! filter = "std"
 //! sort = "asc"
 //! width = 100
@@ -187,7 +188,7 @@ fn main() {
                         symbols_sorting_order = Some(SortOrder::Descending);
                     }
                     _ => {
-                        panic!("Invalid value for key 'sort': '{}'", val);
+                        panic!("Invalid value for key 'sort': '{} (possible values: asc, desc)'", val);
                     }
                 }
             }
