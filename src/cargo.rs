@@ -4,6 +4,7 @@
 //! a list of built artifacts
 //!
 
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -109,6 +110,12 @@ impl TryFrom<(&str, &str, &str)> for BuildArtifact {
             target.replace("-", "_"),
             std::path::PathBuf::from(path)
         ))
+    }
+}
+
+impl Debug for BuildArtifact {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?} {} {:?}", self.kind, self.name, self.path)
     }
 }
 
