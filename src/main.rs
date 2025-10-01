@@ -497,6 +497,7 @@ fn main() {
         }
     }
 
+    println!("Symbols:");
     table.print();
 
     println!();
@@ -510,9 +511,32 @@ fn main() {
         s
     });
 
+    println!();
+
+    let mut table = Table::with_header_and_padding(
+        Row::from(["Name ", "Address ", "Size "]).map(|s| {
+            let mut s = s.clone();
+            if color {
+                s.push_attr(Attribute::TextBold);
+            }
+            s
+        }),
+        &[Padding::Left, Padding::Left, Padding::Right],
+    );
+
+    for section in exe.sections.iter() {
+        table.push_row([
+            section.name.clone(),
+            format!("0x{:08x} ", section.addr),
+            format!("{} ", section.size)
+        ].into()).unwrap();
+    }
+
+    println!("Sections:");
+    table.print();
+
     if !ld_map.is_empty() {
         println!();
-        println!("Region usage (based on LOAD segments and linker memory map):");
 
         let mut table = Table::with_header_and_padding(
             Row::from(["Name ", "Address ", "Used ", "Size ", "Percentage "]).map(|s| {
@@ -553,6 +577,7 @@ fn main() {
             table.push_row(row).unwrap()
         }
 
+        println!("Region usage (based on LOAD segments and linker memory map):");
         table.print();
     }
 
