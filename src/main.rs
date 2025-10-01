@@ -174,6 +174,10 @@ fn main() {
                 filter = val.clone();
             }
 
+            if let Some(toml::Value::String(val)) = binsize.get("ld-file") {
+                ld_map = val.clone();
+            }
+
             if let Some(toml::Value::String(val)) = binsize.get("sort") {
                 match val.as_str() {
                     "asc" => {
