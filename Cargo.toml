@@ -21,6 +21,7 @@ license = "MIT"
 repository = "https://github.com/maxrt101/binsize"
 
 [dependencies]
+toml = "0.9.7"
 json = "0.12.4"
 regex = "1.11.3"
 object = "0.37.3"
