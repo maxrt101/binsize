@@ -13,7 +13,8 @@ Note: this is only a prototype, bugs are expected.
 
 ## Installation
 
-Clone the repo. Run `cargo build`. Enjoy :)  
+Run `cargo install binsize`.  
+Or build manually: clone the repo, run `cargo build`, enjoy :)  
 
 ## Usage
 
