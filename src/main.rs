@@ -99,6 +99,23 @@
 //! Note: If memory region ORIGIN is not in hexadecimal, or LENGTH is not declared as
 //! `<base 10 int>K`, linker script parsing will fail, this is known limitation right now
 //!
+//! ## Config
+//!
+//! `binsize` also support persistent configuration stored in `.cargo/binsize.toml`
+//! Here's an example of such config:
+//!
+//! ```rust,ignore
+//! [binsize]
+//! color = true
+//! profile = "release"
+//! file = "target/release/app"
+//! filter = "std"
+//! sort = "asc"
+//! width = 100
+//! size-threshold = [5000, 10000]
+//! percentage-threshold = [0.5, 1.0]
+//! ```
+//!
 
 use crate::table::{Padding, Row, Table};
 use crate::attr_str::{Attribute, AttributeString};
@@ -112,6 +129,9 @@ mod table;
 mod util;
 mod attr_str;
 mod link;
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const CONFIG: &str = ".cargo/binsize.toml";
 
 fn main() {
     let mut build_opts = cargo::BuildOptions::default();
@@ -128,12 +148,91 @@ fn main() {
     let mut size_threshold_yellow = 200;
     let mut size_threshold_red = 500;
 
+    if matches!(std::fs::exists(CONFIG), Ok(true)) {
+        let config = std::fs::read_to_string(CONFIG).expect("Failed to read config file");
+        let cfg = toml::from_str::<toml::Table>(config.as_str()).unwrap();
+
+        if cfg.contains_key("binsize") {
+            let binsize = cfg.get("binsize")
+                .unwrap()
+                .as_table()
+                .unwrap();
+
+            if let Some(toml::Value::Boolean(val)) = binsize.get("color") {
+                color = *val;
+            }
+
+            if let Some(toml::Value::String(val)) = binsize.get("profile") {
+                build_opts.profile = val.clone();
+            }
+
+            if let Some(toml::Value::String(val)) = binsize.get("file") {
+                file = Some(val.clone());
+            }
+
+            if let Some(toml::Value::String(val)) = binsize.get("file") {
+                filter = val.clone();
+            }
+
+            if let Some(toml::Value::String(val)) = binsize.get("sort") {
+                match val.as_str() {
+                    "asc" => {
+                        symbols_sorting_order = Some(SortOrder::Ascending);
+                    }
+                    "desc" => {
+                        symbols_sorting_order = Some(SortOrder::Descending);
+                    }
+                    _ => {
+                        panic!("Invalid value for key 'sort': '{}'", val);
+                    }
+                }
+            }
+
+            if let Some(toml::Value::Integer(val)) = binsize.get("width") {
+                width = *val as usize;
+            }
+
+            if let Some(toml::Value::Array(val)) = binsize.get("size-threshold") {
+                size_threshold_yellow = val.get(0)
+                    .expect("Missing first value for key 'size-threshold'")
+                    .as_integer()
+                    .expect("Values for key 'size-threshold' must be an integer")
+                    as usize;
+
+                size_threshold_red = val.get(1)
+                    .expect("Missing second value for key 'size-threshold'")
+                    .as_integer()
+                    .expect("Values for key 'size-threshold' must be an integer")
+                    as usize;
+            }
+
+            if let Some(toml::Value::Array(val)) = binsize.get("percentage-threshold") {
+                percentage_threshold_yellow = val.get(0)
+                    .expect("Missing first value for key 'size-threshold'")
+                    .as_float()
+                    .expect("Values for key 'size-threshold' must be a float")
+                    as f32;
+
+                percentage_threshold_red = val.get(1)
+                    .expect("Missing second value for key 'size-threshold'")
+                    .as_float()
+                    .expect("Values for key 'size-threshold' must be a float")
+                    as f32;
+            }
+        }
+    }
+
     let argp = args::ArgumentParser::new(
         vec![
             args::Argument::new_flag(
                 "help",
                 &["--help", "-h"],
                 "Display help message"
+            ),
+            args::Argument::new_flag(
+                "version",
+                &["--version", "-v"],
+                "Display version"
             ),
             args::Argument::new_value(
                 "profile",
@@ -211,6 +310,10 @@ fn main() {
                 println!("binsize - utility to provide comprehensive information about symbol sizes in compiled binaries");
                 println!("Options:");
                 argp.print_help();
+                std::process::exit(0);
+            }
+            "version" => {
+                println!("binsize {}", VERSION);
                 std::process::exit(0);
             }
             "file" => {
