@@ -7,10 +7,10 @@
 use object::{File, Object, ObjectSection, ObjectSegment, ObjectSymbol};
 use std::fmt::{Display, Formatter};
 use std::sync::OnceLock;
-
 use crate::util::SortOrder;
 
 /// Symbol kind
+#[derive(PartialEq)]
 pub enum SymbolKind {
     Unknown,
     Function,
@@ -37,6 +37,9 @@ pub struct Symbol {
 
     /// Symbol size
     pub size: usize,
+
+    /// Symbol address
+    pub addr: usize,
 
     /// Symbol kind
     pub kind: SymbolKind,
@@ -126,34 +129,67 @@ pub fn parse(path: &std::path::Path) -> Result<ExecutableInfo, Box<dyn std::erro
     let file = std::fs::File::open(&path)?;
     let data = unsafe { memmap2::Mmap::map(&file)? };
 
-    let elf = File::parse(&*data)?;
+    let exe = File::parse(&*data)?;
 
-    Ok(ExecutableInfo {
-        segments: elf.segments()
-            .map(|s| LoadSegment {
+    let segments = exe.segments()
+        .map(
+            |s| LoadSegment {
                 size: s.size() as usize,
                 addr: s.address() as usize,
-            })
-            .collect(),
-        sections: elf.sections()
-            .map(|s| Section {
+            }
+        )
+        .collect();
+
+    let sections = exe.sections()
+        .map(
+            |s| Section {
                 // TODO: Should add section type (`PROGBITS`/`NOBITS`/etc.) to filter later on
                 name: s.name().unwrap_or("?").to_string(),
                 size: s.size() as usize,
-            })
-            .collect(),
-        symbols: elf.symbols()
-            .map(|s| Symbol {
-                name: demangle(s.name().unwrap_or("?")),
+            }
+        )
+        .collect();
+
+    let mut symbols = exe.symbols()
+        .map(
+            |s| Symbol {
+                name:       demangle(s.name().unwrap_or("?")),
                 crate_name: demangle_crate(s.name().unwrap_or("?")),
-                size: s.size() as usize,
+                size:       s.size() as usize,
+                addr:       s.address() as usize,
                 kind: match s.kind() {
                     object::SymbolKind::Text => SymbolKind::Function,
                     object::SymbolKind::Data => SymbolKind::Data,
                     _                        => SymbolKind::Unknown,
                 },
-            })
-            .collect(),
-    })
+            }
+        )
+        .filter(|s| s.kind != SymbolKind::Unknown)
+        .collect::<Vec<_>>();
+
+    // Symbols need to be sorted in ascending order by address to calculate size
+    symbols.sort_by_key(|s| s.addr);
+
+    for i in 0..symbols.len() - 1 {
+        let sym = &symbols[i];
+
+        if sym.size == 0 {
+            // Mach-O doesn't store symbol sizes, so they have to be calculated by hand
+            // With symbols sorted, we can easily find next symbol to subtract current
+            // symbol's address from the next (higher) one
+            // This fix comes from binfarce macho.rs, I already started to bang my head
+            // against the wall, so much thanks to whoever found this
+            // TODO: Check if sizes are valid, especially for DATA symbols
+            if let Some(next) = symbols[i..].iter().skip_while(|s| s.addr == sym.addr).next() {
+                // Avoid overflow: better to not have a size, than to have an invalid one
+                if next.addr > sym.addr {
+                    // Subtract current symbol address from next one
+                    symbols[i].size = next.addr - sym.addr;
+                }
+            }
+        }
+    }
+
+    Ok(ExecutableInfo { segments, sections, symbols })
 }
 
