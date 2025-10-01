@@ -1,11 +1,10 @@
 //! # `binsize::link`
-//! 
+//!
 //! Houses a linker memory region parser
-//! 
+//!
 
 use std::error::Error;
 use std::fmt::Display;
-use std::io::Read;
 use std::sync::OnceLock;
 use crate::exe::LoadSegment;
 
@@ -23,7 +22,7 @@ static MEM_REG_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
 ///
 /// link::MemoryRegion::use_segments_data(&mut regions, &exe.segments);
 /// ```
-/// 
+///
 pub struct MemoryRegion {
     /// Region name
     pub name: String,
@@ -61,10 +60,7 @@ impl MemoryRegion {
 
     /// Parse memory region declarations from linker script
     pub fn from_file(path: &std::path::PathBuf) -> Result<Vec<Self>, Box<dyn Error>> {
-        let mut f = std::fs::File::open(path)?;
-        let mut s = String::new();
-
-        f.read_to_string(&mut s)?;
+        let s = std::fs::read_to_string(path)?;
 
         // TODO: Check if anything other than declarations from MEMORY can be matched here (by passing whole linker script for example)
         let re = MEM_REG_PATTERN.get_or_init(|| regex::Regex::new(r"^\s+(\w+)\s+:\s+(\w+)\s+=\s+(\w+),\s+(\w+)\s+=\s+(\w+)").unwrap());
