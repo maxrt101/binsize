@@ -4,6 +4,7 @@
 //!
 
 /// Represents soring order
+#[derive(Copy, Clone)]
 pub enum SortOrder {
     Ascending,
     Descending,
