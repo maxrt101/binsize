@@ -86,6 +86,13 @@ If you want to sort symbols by size, use `--asc`/`-a` or `--desc`/`-d`:
 $ binsize --asc
 ```
 
+If you want to specify what information you'd like to see - use `--output`/`-o`.  
+Possible values are: sym|symbols, sec|sections|, seg|segments, cr|crates. By default, everything is shown:  
+
+```shell
+$ binsize --output sections,crates
+```
+
 For embedded projects, I really like GCC's `--print-memory-usage` linker flag, but using rust and  
 cargo, I found it pretty hard to display the information about memory region usage (FLASH/RAM/etc.).  
 So `binsize` provides a way to get that information, albeit not without user input. To get  
