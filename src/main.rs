@@ -116,6 +116,8 @@
 //! size-threshold = [5000, 10000]
 //! percentage-threshold = [0.5, 1.0]
 //! ```
+//! 
+//! Note: command line arguments will override config values
 //!
 
 use crate::table::{Padding, Row, Table};
@@ -132,7 +134,10 @@ mod util;
 mod attr_str;
 mod link;
 
+/// `binsize` version
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// `binsize` config file location
 const CONFIG: &str = ".cargo/binsize.toml";
 
 /// `binsize` Application
@@ -201,9 +206,9 @@ impl Binsize {
 
             if cfg.contains_key("binsize") {
                 let binsize = cfg.get("binsize")
-                    .unwrap()
+                    .expect("Config file must contain a [binsize] section")
                     .as_table()
-                    .unwrap();
+                    .expect("[binsize] must be a table]");
 
                 if let Some(toml::Value::Boolean(val)) = binsize.get("color") {
                     self.color = *val;
