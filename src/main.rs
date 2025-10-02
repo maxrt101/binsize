@@ -141,13 +141,13 @@ struct Binsize {
     build_options: BuildOptions,
 
     /// Filter for symbol names
-    filter: Option<String>,
+    filter: regex::Regex,
 
     /// Linker script path with `MEMORY` declaration
-    ld_file: Option<String>,
+    ld_file: String,
 
     /// File to parse (if `None` - will try to extract file from `cargo build`)
-    file: Option<String>,
+    file: String,
 
     /// Colorful output toggle
     color: bool,
@@ -175,12 +175,13 @@ struct Binsize {
 }
 
 impl Binsize {
+    /// Create new `binsize` application
     fn new() -> Self {
         Self {
             build_options: Default::default(),
-            filter: None,
-            ld_file: None,
-            file: None,
+            filter: regex::Regex::new(".+").unwrap(),
+            ld_file: "".to_string(),
+            file: "".to_string(),
             color: false,
             width: 50,
             symbols_sorting_order: None,
@@ -192,6 +193,7 @@ impl Binsize {
         }
     }
 
+    /// Parse config in `.cargo/binsize.toml`, if available
     fn parse_config(&mut self) {
         if matches!(std::fs::exists(CONFIG), Ok(true)) {
             let config = std::fs::read_to_string(CONFIG).expect("Failed to read config file");
@@ -212,15 +214,15 @@ impl Binsize {
                 }
 
                 if let Some(toml::Value::String(val)) = binsize.get("file") {
-                    self.file = Some(val.clone());
+                    self.file = val.clone();
                 }
 
                 if let Some(toml::Value::String(val)) = binsize.get("filter") {
-                    self.filter = Some(val.clone());
+                    self.filter = regex::Regex::new(val.as_str()).unwrap();
                 }
 
                 if let Some(toml::Value::String(val)) = binsize.get("ld-file") {
-                    self.ld_file = Some(val.clone());
+                    self.ld_file = val.clone();
                 }
 
                 if let Some(toml::Value::String(val)) = binsize.get("sort") {
@@ -272,6 +274,7 @@ impl Binsize {
         }
     }
 
+    /// Parse command line arguments
     fn parse_args(&mut self) {
         let argp = args::ArgumentParser::new(
             vec![
@@ -301,7 +304,7 @@ impl Binsize {
                     "filter",
                     &["--filter", "-f"],
                     &["FILTER"],
-                    "Filter symbol names by this value"
+                    "Filter symbol names by this value. Supports regex"
                 ),
                 args::Argument::new_value(
                     "width",
@@ -368,11 +371,9 @@ impl Binsize {
                     std::process::exit(0);
                 }
                 "file" => {
-                    self.file = Some(
-                        arg.values.get(0)
+                    self.file = arg.values.get(0)
                             .expect("Missing value for --file")
-                            .clone()
-                    );
+                            .clone();
                 }
                 "profile" => {
                     self.build_options.profile = arg.values.get(0)
@@ -380,9 +381,11 @@ impl Binsize {
                         .clone();
                 }
                 "filter" => {
-                    self.filter = Some(arg.values.get(0)
+                    self.filter = regex::Regex::new(arg.values.get(0)
                         .expect("Missing value for --filter")
-                        .clone());
+                        .clone()
+                        .as_str()
+                    ).unwrap();
                 }
                 "width" => {
                     self.width = arg.values.get(0)
@@ -391,9 +394,9 @@ impl Binsize {
                         .expect("width must be a number");
                 }
                 "ld-memory-map" => {
-                    self.ld_file = Some(arg.values.get(0)
+                    self.ld_file = arg.values.get(0)
                         .expect("Missing value for --ld-memory-map")
-                        .clone());
+                        .clone();
                 }
                 "asc" => {
                     self.symbols_sorting_order = Some(SortOrder::Ascending);
@@ -433,10 +436,10 @@ impl Binsize {
         }
     }
 
+    /// Load executable
     fn load_exe(&mut self) {
-        let path = if self.file.is_some() {
-            // TODO: Shouldn't clone()???
-            std::path::PathBuf::from(self.file.clone().unwrap())
+        let path = if !self.file.is_empty() {
+            std::path::PathBuf::from(&self.file)
         } else {
             if let Err(stderr) = cargo::build(self.build_options.clone()) {
                 println!("{}", stderr);
@@ -455,14 +458,14 @@ impl Binsize {
             .expect("Failed to parse executable");
     }
 
+    /// Dump symbols
     fn dump_symbols(&mut self) {
         if let Some(order) = &self.symbols_sorting_order {
             self.exe.sort_symbols(*order);
         }
 
-        // TODO: Shouldn't clone() filter???
         let total = self.exe.symbols.iter()
-            .filter(|s| { !(!self.filter.is_none() && !s.name.contains(&self.filter.clone().unwrap())) })
+            .filter(|s| { matches!(self.filter.captures(&s.name), Some(_)) })
             .fold(0, |r, s| r + s.size);
 
         let mut table = Table::with_header_and_padding(
@@ -480,7 +483,7 @@ impl Binsize {
 
         for sym in &self.exe.symbols {
             if sym.size != 0 {
-                if !self.filter.is_none() && !sym.name.contains(&self.filter.clone().unwrap()) {
+                if matches!(self.filter.captures(&sym.name), None) {
                     continue;
                 }
 
@@ -564,6 +567,7 @@ impl Binsize {
         });
     }
 
+    /// Dump sections
     fn dump_sections(&mut self) {
         println!();
 
@@ -590,8 +594,9 @@ impl Binsize {
         table.print();
     }
 
+    /// Dump segments, if `ld_file` is set
     fn dump_segments(&mut self) {
-        if !self.ld_file.is_none() {
+        if !self.ld_file.is_empty() {
             println!();
 
             let mut table = Table::with_header_and_padding(
@@ -606,7 +611,7 @@ impl Binsize {
             );
 
             // TODO: Shouldn't clone() ld_file
-            let mut regions = link::MemoryRegion::from_file(&self.ld_file.clone().unwrap().into()).unwrap();
+            let mut regions = link::MemoryRegion::from_file(&self.ld_file.clone().into()).unwrap();
 
             link::MemoryRegion::use_segments_data(&mut regions, &self.exe.segments);
 
@@ -639,6 +644,7 @@ impl Binsize {
         }
     }
 
+    /// Run whole application
     fn run(&mut self) {
         self.parse_config();
         self.parse_args();
