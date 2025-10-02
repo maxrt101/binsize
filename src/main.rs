@@ -127,6 +127,7 @@
 //! Note: command line arguments will override config values
 //!
 
+use std::collections::HashMap;
 use crate::table::{Padding, Row, Table};
 use crate::attr_str::{Attribute, AttributeString};
 use crate::cargo::BuildOptions;
@@ -152,6 +153,7 @@ enum Output {
     Symbols  = 1 << 0,
     Sections = 1 << 1,
     Segments = 1 << 2,
+    Crates   = 1 << 3,
     None     = 0,
     All      = 0xff,
 }
@@ -161,10 +163,11 @@ impl TryFrom<&str> for Output {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "*" | "all"        => Ok(Output::All),
+            "*"   | "all"      => Ok(Output::All),
             "sym" | "symbols"  => Ok(Output::Symbols),
             "sec" | "sections" => Ok(Output::Sections),
             "seg" | "segments" => Ok(Output::Segments),
+            "cr"  | "crates"   => Ok(Output::Crates),
             _                  => Err("Invalid output type".into()),
         }
     }
@@ -206,6 +209,7 @@ struct Binsize {
     size_threshold_red: usize,
 
     /// What to output
+    // TODO: Isn't overridden by args
     output: u8,
 
     /// Executable info
@@ -348,7 +352,7 @@ impl Binsize {
                     "output",
                     &["--output", "-o"],
                     &["OUTPUT"],
-                    "Comma separated list of output values: sym|symbols, sec|sections|, seg|segments (default: all)"
+                    "Comma separated list of output values: sym|symbols, sec|sections|, seg|segments, cr|crates (default: all)"
                 ),
                 args::Argument::new_value(
                     "file",
@@ -606,7 +610,6 @@ impl Binsize {
             }
         }
 
-        println!("Symbols:");
         table.print();
 
         println!();
@@ -619,6 +622,57 @@ impl Binsize {
 
             s
         });
+    }
+
+    /// Dump crate sizes
+    fn dump_crates(&mut self) {
+        println!();
+
+        let mut crates = HashMap::new();
+
+        for sym in self.exe.symbols.iter() {
+            if crates.contains_key(&sym.crate_name) {
+                *crates.get_mut(&sym.crate_name).unwrap() += sym.size;
+            } else {
+                crates.insert(&sym.crate_name, sym.size);
+            }
+        }
+
+        let mut crates = crates.iter().collect::<Vec<_>>();
+
+        // crates.sort_by_key(|c| c.1);
+        if let Some(order) = self.symbols_sorting_order {
+            crates.sort_by(|s1, s2|
+                if match order {
+                    SortOrder::Ascending => s1.1 < s2.1,
+                    SortOrder::Descending => s1.1 > s2.1
+                } {
+                    core::cmp::Ordering::Less
+                } else {
+                    core::cmp::Ordering::Greater
+                }
+            );
+        }
+
+        let mut table = Table::with_header_and_padding(
+            Row::from(["Crate Name ", "Size "]).map(|s| {
+                let mut s = s.clone();
+                if self.color {
+                    s.push_attr(Attribute::TextBold);
+                }
+                s
+            }),
+            &[Padding::Left, Padding::Right],
+        );
+
+        for (name, size) in crates {
+            table.push_row([
+                (*name).clone(),
+                format!("{} ", size)
+            ].into()).unwrap();
+        }
+
+        table.print();
     }
 
     /// Dump sections
@@ -644,7 +698,6 @@ impl Binsize {
             ].into()).unwrap();
         }
 
-        println!("Sections:");
         table.print();
     }
 
@@ -693,7 +746,6 @@ impl Binsize {
                 table.push_row(row).unwrap()
             }
 
-            println!("Region usage (based on LOAD segments and linker memory map):");
             table.print();
         }
     }
@@ -711,6 +763,10 @@ impl Binsize {
 
         if self.output & Output::Symbols as u8 > 0 {
             self.dump_symbols();
+        }
+
+        if self.output & Output::Crates as u8 > 0 {
+            self.dump_crates();
         }
 
         if self.output & Output::Sections as u8 > 0 {
