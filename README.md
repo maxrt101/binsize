@@ -120,6 +120,7 @@ Here's an example of such config:
 [binsize]
 color = true
 profile = "release"
+output = ["symbols", "segments"]
 file = "target/release/app"
 ld-file = "boards/stm32l051/memory.x"
 filter = "std"
