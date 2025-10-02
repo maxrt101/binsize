@@ -34,16 +34,16 @@ pub enum ArgumentKind {
 pub struct Argument {
     /// Argument name - used after `ArgumentParser::parse()` to distinguish parsed arguments
     name: String,
-    
+
     /// Argument kind - either a flag without value, of with
     kind: ArgumentKind,
-    
+
     /// Which keys for this argument are used (e.g. `--flag`, `-f`, etc.)
     keys: Vec<String>,
 
     /// Values and their names (e.g. `--flag1 VALUE` or `--flag2 VALUE1 VALUE2`)
     values: Vec<String>,
-    
+
     /// Description used for `ArgumentParser::print_help()`
     description: String,
 }
@@ -75,7 +75,7 @@ impl Argument {
 pub struct ParsedArgument {
     /// Argument name from `Argument`
     pub name: String,
-    
+
     /// Parsed values (empty for Flag)
     pub values: Vec<String>,
 }
@@ -84,7 +84,7 @@ pub struct ParsedArgument {
 pub struct ParsedArguments {
     /// Parsed arguments
     pub args: Vec<ParsedArgument>,
-    
+
     /// Unrecognized arguments
     pub leftover: Vec<String>,
 }
@@ -94,10 +94,10 @@ pub struct ParsedArguments {
 pub enum UnexpectedArgumentPolicy {
     /// Ignore the argument
     Ignore,
-    
+
     /// Save it into `ParsedArguments::leftover`
     Save,
-    
+
     /// Panic
     Crash,
 }
@@ -122,7 +122,7 @@ pub enum UnexpectedArgumentPolicy {
 ///     ],
 ///     UnexpectedArgumentPolicy::Crash
 /// );
-/// 
+///
 /// for arg in argp.parse(std::env::args().skip(1)).args {
 ///     match arg.name.as_str() {
 ///         "help" => {
@@ -146,13 +146,13 @@ pub enum UnexpectedArgumentPolicy {
 pub struct ArgumentParser {
     /// Argument metadata
     args: HashMap<String, Argument>,
-    
+
     /// Map of `Argument::keys` to `Argument::name`
     keymap: HashMap<String, String>,
-    
+
     /// Used in `print_help()` to print arguments in order, that they were declared
     order: Vec<String>,
-    
+
     /// Policy on unknown/unrecognized arguments
     unknown_argument_policy: UnexpectedArgumentPolicy
 }
@@ -177,6 +177,7 @@ impl ArgumentParser {
 
     /// Prints help message for each argument
     pub fn print_help(&self) {
+        // TODO: With long descriptions, table can break, maybe add something like OverflowPolicy(Ignore, Trim, NewlineAligned)
         let mut table = crate::table::Table::with_empty_header(4);
 
         for name in self.order.iter() {
@@ -185,13 +186,13 @@ impl ArgumentParser {
             table.push_row([
                 // 4 spaces for prettiness
                 "    ",
-                
+
                 // Join all argument keys + argument values into single column in this row
                 (arg.keys.join(", ") + " " + arg.values.join(" ").as_str()).as_str(),
-                
+
                 // Delimiter between argument keys + values and description
                 "-",
-                
+
                 // Description
                 arg.description.as_str()
             ].into()).unwrap();
