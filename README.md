@@ -8,16 +8,16 @@
 ░▒▓███████▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓███████▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓████████▓▒░ 
 ```
 
-`binsize` is a command-line utility that provides analysis of size/memory usage of rust  
-binaries. It was inspired by `cargo-bloat`, but with a different approach to retrieving  
-symbols. Main difference is that `binsize` parses *all* symbols (both functions and  
-data/constants), except for those with a size of 0. `binsize` also provides colored output,  
-section & memory region usage (if provided with a path to linker script that has a `MEMORY` definition)  
+`binsize` is a command-line utility that provides analysis of size/memory usage of rust
+binaries. It was inspired by `cargo-bloat`, but with a different approach to retrieving
+symbols. Main difference is that `binsize` parses *all* symbols (both functions and
+data/constants), except for those with a size of 0. `binsize` also provides colored output,
+section & memory region usage (if provided with a path to linker script that has a `MEMORY` definition)
 
-Note: file, that is being analyzed, must have `.symtab` section, otherwise `binsize` won't  
-be able to parse exported symbols. So don't strip your binaries, if you want this to work.  
+Note: file, that is being analyzed, must have `.symtab` section, otherwise `binsize` won't
+be able to parse exported symbols. So don't strip your binaries, if you want this to work.
 
-Note: this is only a prototype, bugs are expected.  
+Note: this is only a prototype, bugs are expected.
 
 ## Installation
 
@@ -64,16 +64,16 @@ If you want to enable colored output, use `--color`/`-c` flag:
 $ binsize -c
 ```
 
-With enabled colorful output, you'll see that `Size` & `Percentage` columns became green,  
-yellow or red. This serves as a visual indicator, of a symbol being too large. Threshold for  
-symbol's size/percentage to become yellow/red can be overridden using `--size-threshold` and  
+With enabled colorful output, you'll see that `Size` & `Percentage` columns became green,
+yellow or red. This serves as a visual indicator, of a symbol being too large. Threshold for
+symbol's size/percentage to become yellow/red can be overridden using `--size-threshold` and
 `--percentage-threshold`:
 
 ```shell
 $ binsize --percentage-threshold 1.2 5.0 --size-threshold 500 1200
 ```
 
-If some symbol has too big of a name, and it got trimmed, you can use `--width`/`-w` to increase  
+If some symbol has too big of a name, and it got trimmed, you can use `--width`/`-w` to increase
 (or decrease) maximal width of symbol name:  
 
 ```shell
@@ -86,17 +86,17 @@ If you want to sort symbols by size, use `--asc`/`-a` or `--desc`/`-d`:
 $ binsize --asc
 ```
 
-If you want to specify what information you'd like to see - use `--output`/`-o`.  
-Possible values are: sym|symbols, sec|sections|, seg|segments, cr|crates. By default, everything is shown:  
+If you want to specify what information you'd like to see - use `--output`/`-o`.
+Possible values are: sym|symbols, sec|sections|, seg|segments, cr|crates. By default, everything is shown:
 
 ```shell
 $ binsize --output sections,crates
 ```
 
-For embedded projects, I really like GCC's `--print-memory-usage` linker flag, but using rust and  
-cargo, I found it pretty hard to display the information about memory region usage (FLASH/RAM/etc.).  
-So `binsize` provides a way to get that information, albeit not without user input. To get  
-memory region usage, you must pass a path to linker script, which has a `MEMORY` declaration,  
+For embedded projects, I really like GCC's `--print-memory-usage` linker flag, but using rust and
+cargo, I found it pretty hard to display the information about memory region usage (FLASH/RAM/etc.).
+So `binsize` provides a way to get that information, albeit not without user input. To get
+memory region usage, you must pass a path to linker script, which has a `MEMORY` declaration,
 like this:  
 
 ```ld
@@ -120,12 +120,12 @@ After running this, you'll get a table at the very bottom of the output with col
 `Size`       - Full size of a region. Corresponds to LENGTH in linker script  
 `Percentage` - Percentage of used against full size  
 
-Note: If memory region ORIGIN is not in hexadecimal, or LENGTH is not declared as  
+Note: If memory region ORIGIN is not in hexadecimal, or LENGTH is not declared as
 `<base 10 int>K`, linker script parsing will fail, this is known limitation right now  
 
 ## Config
 
-`binsize` also support persistent configuration stored in `.cargo/binsize.toml`  
+`binsize` also support persistent configuration stored in `.cargo/binsize.toml`
 Here's an example of such config:  
 
 ```toml
