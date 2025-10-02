@@ -44,6 +44,13 @@ And a section table with columns:
 `Address` - Section address  
 `Size`    - Section size  
 
+And also a crate sizes table with columns:  
+`Crate Name` - Crate name  
+`Size`       - Size of crate (calculated from symbols)  
+
+Note: `Crate Name` fields in symbols and crates tables are derived from demangled symbol name.
+Currently, crate name is a rough guess, it's a known issue.  
+
 If you want to analyze artifact, produced with a different cargo profile, use `--profile`/`-p`
 flag:  
 
@@ -87,7 +94,7 @@ $ binsize --asc
 ```
 
 If you want to specify what information you'd like to see - use `--output`/`-o`.
-Possible values are: sym|symbols, sec|sections|, seg|segments, cr|crates. By default, everything is shown:
+Possible values are: `sym|symbols`, `sec|sections|`, `seg|segments`, `cr|crates`. By default, everything is shown:
 
 ```shell
 $ binsize --output sections,crates
