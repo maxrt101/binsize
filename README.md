@@ -94,7 +94,7 @@ $ binsize --asc
 ```
 
 If you want to specify what information you'd like to see - use `--output`/`-o`.
-Possible values are: `sym|symbols`, `sec|sections|`, `seg|segments`, `cr|crates`. By default, everything is shown:
+Possible values are: `sym|symbols`, `sec|sections|`, `seg|segments`, `cr|crates`. By default, only `symbols` are shown:
 
 ```shell
 $ binsize --output sections,crates
