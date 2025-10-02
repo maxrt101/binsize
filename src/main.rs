@@ -33,6 +33,13 @@
 //! `Address` - Section address
 //! `Size`    - Section size
 //!
+//! And also a crate sizes table with columns:
+//! `Crate Name` - Crate name
+//! `Size`       - Size of crate (calculated from symbols)
+//!
+//! Note: `Crate Name` fields in symbols and crates tables are derived from demangled symbol name.
+//! Currently, crate name is a rough guess, it's a known issue.
+//! 
 //! If you want to analyze artifact, produced with a different cargo profile, use `--profile`/`-p`
 //! flag:
 //!
@@ -76,8 +83,8 @@
 //! ```
 //!
 //! If you want to specify what information you'd like to see - use `--output`/`-o`. Possible
-//! values are: sym|symbols, sec|sections|, seg|segments, cr|crates. By default, everything is
-//! shown:
+//! values are: `sym|symbols`, `sec|sections|`, `seg|segments`, `cr|crates`. By default,
+//! everything is shown:
 //!
 //! ```rust,ignore
 //! $ binsize --output sections,crates
@@ -648,7 +655,6 @@ impl Binsize {
 
         let mut crates = crates.iter().collect::<Vec<_>>();
 
-        // crates.sort_by_key(|c| c.1);
         if let Some(order) = self.symbols_sorting_order {
             crates.sort_by(|s1, s2|
                 if match order {
