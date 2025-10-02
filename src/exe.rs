@@ -186,7 +186,9 @@ pub fn parse(path: &std::path::Path) -> Result<ExecutableInfo, Box<dyn std::erro
             // symbol's address from the next (higher) one
             // This fix comes from binfarce macho.rs, I already started to bang my head
             // against the wall, so... much thanks to whoever found this
-            // TODO: Check if sizes are valid, especially for DATA symbols
+            // TODO: Check if sizes are valid, especially for DATA symbols and for the last symbol
+            //       in section
+            //       For last symbol can subtract from section.origin + section.length
             if let Some(next) = symbols[i..].iter().skip_while(|s| s.addr == sym.addr).next() {
                 // Avoid overflow: better to not have a size, than to have an invalid one
                 if next.addr > sym.addr {
