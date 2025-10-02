@@ -84,7 +84,7 @@
 //!
 //! If you want to specify what information you'd like to see - use `--output`/`-o`. Possible
 //! values are: `sym|symbols`, `sec|sections|`, `seg|segments`, `cr|crates`. By default,
-//! everything is shown:
+//! only `symbols` are shown:
 //!
 //! ```rust,ignore
 //! $ binsize --output sections,crates
@@ -770,7 +770,7 @@ impl Binsize {
         self.parse_args();
 
         if self.output == Output::None as u8 {
-            self.output = Output::All as u8;
+            self.output = Output::Symbols as u8;
         }
 
         self.load_exe();
