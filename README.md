@@ -128,3 +128,5 @@ width = 100
 size-threshold = [5000, 10000]
 percentage-threshold = [0.5, 1.0]
 ```
+
+Note: command line arguments will override config values  
