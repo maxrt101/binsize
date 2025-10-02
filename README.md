@@ -12,7 +12,7 @@
 binaries. It was inspired by `cargo-bloat`, but with a different approach to retrieving  
 symbols. Main difference is that `binsize` parses *all* symbols (both functions and  
 data/constants), except for those with a size of 0. `binsize` also provides colored output,  
-memory region usage (if provided with a path to linker script that has a `MEMORY` definition)  
+section & memory region usage (if provided with a path to linker script that has a `MEMORY` definition)  
 
 Note: file, that is being analyzed, must have `.symtab` section, otherwise `binsize` won't  
 be able to parse exported symbols. So don't strip your binaries, if you want this to work.  
@@ -32,12 +32,17 @@ Navigate to you project (folder containing `Cargo.toml`) and run:
 $ binsize
 ```
 
-You should see a table with columns:  
+You should see a symbol table with columns:  
 `Size`        - Size of symbol in bytes  
 `Percentage`  - Size of symbol as a percentage of size of all symbols combined  
 `Symbol Kind` - Symbols Type, either `FUNC` of `DATA` (if symbol kind couldn't be parsed, it'll display `UNK`)  
 `Crate Name`  - Crate name derived from demangled symbol name. Isn't super accurate for now  
 `Symbol Name` - Demangled symbol name  
+
+And a section table with columns:  
+`Name`    - Section name  
+`Address` - Section address  
+`Size`    - Section size  
 
 If you want to analyze artifact, produced with a different cargo profile, use `--profile`/`-p`
 flag:  
