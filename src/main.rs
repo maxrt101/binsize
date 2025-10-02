@@ -108,6 +108,7 @@
 //! [binsize]
 //! color = true
 //! profile = "release"
+//! output = ["symbols", "segments"]
 //! file = "target/release/app"
 //! ld-file = "boards/stm32l051/memory.x"
 //! filter = "std"
@@ -116,7 +117,7 @@
 //! size-threshold = [5000, 10000]
 //! percentage-threshold = [0.5, 1.0]
 //! ```
-//! 
+//!
 //! Note: command line arguments will override config values
 //!
 
@@ -139,6 +140,29 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// `binsize` config file location
 const CONFIG: &str = ".cargo/binsize.toml";
+
+///
+enum Output {
+    Symbols  = 1 << 0,
+    Sections = 1 << 1,
+    Segments = 1 << 2,
+    None     = 0,
+    All      = 0xff,
+}
+
+impl TryFrom<&str> for Output {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "*" | "all"        => Ok(Output::All),
+            "sym" | "symbols"  => Ok(Output::Symbols),
+            "sec" | "sections" => Ok(Output::Sections),
+            "seg" | "segments" => Ok(Output::Segments),
+            _                  => Err("Invalid output type".into()),
+        }
+    }
+}
 
 /// `binsize` Application
 struct Binsize {
@@ -175,6 +199,9 @@ struct Binsize {
     /// Threshold in bytes for symbol to be colored red
     size_threshold_red: usize,
 
+    /// What to output
+    output: u8,
+
     /// Executable info
     exe: ExecutableInfo,
 }
@@ -194,6 +221,7 @@ impl Binsize {
             percentage_threshold_red: 1.0,
             size_threshold_yellow: 200,
             size_threshold_red: 500,
+            output: Output::None as u8,
             exe: ExecutableInfo::default(),
         }
     }
@@ -216,6 +244,17 @@ impl Binsize {
 
                 if let Some(toml::Value::String(val)) = binsize.get("profile") {
                     self.build_options.profile = val.clone();
+                }
+
+                if let Some(toml::Value::Array(val)) = binsize.get("output") {
+                    for s in val {
+                        let out: Output = s.as_str()
+                            .expect("output values must be strings")
+                            .try_into()
+                            .unwrap();
+
+                        self.output |= out as u8;
+                    }
                 }
 
                 if let Some(toml::Value::String(val)) = binsize.get("file") {
@@ -300,10 +339,22 @@ impl Binsize {
                     "Cargo profile to build the project with"
                 ),
                 args::Argument::new_value(
+                    "output",
+                    &["--output", "-o"],
+                    &["OUTPUT"],
+                    "Comma separated list of output values: sym|symbols, sec|sections|, seg|segments (default: all)"
+                ),
+                args::Argument::new_value(
                     "file",
                     &["--file"],
                     &["FILE"],
                     "Provide a path to compiled binary, skipping 'cargo build'"
+                ),
+                args::Argument::new_value(
+                    "ld-memory-map",
+                    &["--ld-memory-map", "-l"],
+                    &["LD_PATH"],
+                    "Path to ld script, containing MEMORY declaration"
                 ),
                 args::Argument::new_value(
                     "filter",
@@ -316,12 +367,6 @@ impl Binsize {
                     &["--width", "-w"],
                     &["WIDTH"],
                     "Max width of symbol name (default: 80)"
-                ),
-                args::Argument::new_value(
-                    "ld-memory-map",
-                    &["--ld-memory-map", "-l"],
-                    &["LD_PATH"],
-                    "Path to ld script, containing MEMORY declaration"
                 ),
                 args::Argument::new_flag(
                     "asc",
@@ -350,15 +395,6 @@ impl Binsize {
                     &["YELLOW", "RED"],
                     "Yellow & red size percentage thresholds (default 0.5 1.0)"
                 ),
-
-                // Make filter comma separated + any()-like upon checking OR make it a regex
-                // + -a/--asc
-                // + -d/--desc
-                //   --sym/--symbols
-                //   --sec/--sections
-                //   --seg/--segments
-                // + -c/--color
-                //   -t/--table size,percent,kind,crate,name
             ],
             args::UnexpectedArgumentPolicy::Crash
         );
@@ -375,15 +411,22 @@ impl Binsize {
                     println!("binsize {}", VERSION);
                     std::process::exit(0);
                 }
-                "file" => {
-                    self.file = arg.values.get(0)
-                            .expect("Missing value for --file")
-                            .clone();
-                }
                 "profile" => {
                     self.build_options.profile = arg.values.get(0)
                         .expect("Missing value for --profile")
                         .clone();
+                }
+                "output" => {
+                    for s in arg.values.get(0).expect("Missing value for --output").split(",") {
+                        let out: Output = s.try_into().unwrap();
+
+                        self.output |= out as u8;
+                    }
+                }
+                "file" => {
+                    self.file = arg.values.get(0)
+                            .expect("Missing value for --file")
+                            .clone();
                 }
                 "filter" => {
                     self.filter = regex::Regex::new(arg.values.get(0)
@@ -654,11 +697,23 @@ impl Binsize {
         self.parse_config();
         self.parse_args();
 
+        if self.output == Output::None as u8 {
+            self.output = Output::All as u8;
+        }
+
         self.load_exe();
 
-        self.dump_symbols();
-        self.dump_sections();
-        self.dump_segments();
+        if self.output & Output::Symbols as u8 > 0 {
+            self.dump_symbols();
+        }
+
+        if self.output & Output::Sections as u8 > 0 {
+            self.dump_sections();
+        }
+
+        if self.output & Output::Segments as u8 > 0 {
+            self.dump_segments();
+        }
     }
 }
 
