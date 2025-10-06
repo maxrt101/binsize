@@ -80,13 +80,6 @@ symbol's size/percentage to become yellow/red can be overridden using `--size-th
 $ binsize --percentage-threshold 1.2 5.0 --size-threshold 500 1200
 ```
 
-If some symbol has too big of a name, and it got trimmed, you can use `--width`/`-w` to increase
-(or decrease) maximal width of symbol name:  
-
-```shell
-$ binsize -c 120
-```
-
 If you want to sort symbols by size, use `--asc`/`-a` or `--desc`/`-d`:  
 
 ```shell
