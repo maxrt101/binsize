@@ -4,6 +4,7 @@
 //!
 
 use std::collections::HashMap;
+use crate::table::{Padding, Table};
 
 /// Represents argument types
 #[derive(PartialEq)]
@@ -177,8 +178,9 @@ impl ArgumentParser {
 
     /// Prints help message for each argument
     pub fn print_help(&self) {
-        // TODO: With long descriptions, table can break, maybe add something like OverflowPolicy(Ignore, Trim, NewlineAligned)
-        let mut table = crate::table::Table::with_empty_header(4);
+        let mut table = Table::with_empty_header_and_padding(vec![
+            Padding::None, Padding::Left, Padding::None, Padding::Left
+        ]);
 
         for name in self.order.iter() {
             let arg = &self.args[name];
@@ -191,7 +193,7 @@ impl ArgumentParser {
                 (arg.keys.join(", ") + " " + arg.values.join(" ").as_str()).as_str(),
 
                 // Delimiter between argument keys + values and description
-                "-",
+                " - ",
 
                 // Description
                 arg.description.as_str()
