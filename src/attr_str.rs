@@ -95,19 +95,9 @@ impl AttributeString {
         self.str.len()
     }
 
-    /// Truncates underlying string
-    pub fn truncate(&mut self, len: usize) {
-        self.str.truncate(len);
-    }
-
     /// Pushes new attribute into attribute list
     pub fn push_attr(&mut self, attr: Attribute) {
         self.attrs.push(attr);
-    }
-
-    /// Pushes string into the underlying string
-    pub fn push_str(&mut self, str: &str) {
-        self.str.push_str(str);
     }
 
     /// Returns underlying string
