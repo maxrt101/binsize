@@ -7,10 +7,12 @@ use std::fmt::{Debug, Formatter};
 use std::ops::{Index, IndexMut};
 
 use crate::attr_str::{AttributeString};
+use crate::util;
 
 /// Represents left/right padding
 #[derive(Clone, Copy)]
 pub enum Padding {
+    None,
     Left,
     Right,
 }
@@ -18,7 +20,8 @@ pub enum Padding {
 impl Debug for Padding {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Padding::Left => f.write_str("L"),
+            Padding::None  => f.write_str("?"),
+            Padding::Left  => f.write_str("L"),
             Padding::Right => f.write_str("R"),
         }
     }
@@ -80,6 +83,12 @@ impl IndexMut<usize> for Row {
     }
 }
 
+impl Debug for Row {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.values)
+    }
+}
+
 
 /// Represents a table of rows
 ///
@@ -117,23 +126,45 @@ pub struct Table {
     /// Maximal width of each column, updated on push
     widths: Vec<usize>,
 
-    /// Max width of single column value
+    /// Max width of single column value. If 0 - will be initialized from `util::term_width()`
     max_width: usize,
 }
 
 impl Table {
     /// Creates new table
-    /// Will implicitly calculate `widths`
     pub fn new(header: Row, padding: &[Padding], rows: &[Row], max_width: usize) -> Self {
         let mut table = Self {
             header,
             padding: padding.to_vec(),
-            rows: rows.to_vec(),
-            widths: Vec::new(),
-            max_width,
+            rows: vec![],
+            widths: vec![],
+            max_width: if max_width == 0 { util::term_width() } else { max_width }
         };
 
-        table.widths = table.calculate_max_widths();
+        // Total size of header row in symbols
+        let mut size = 0;
+
+        for val in table.header.values.iter() {
+            // Current column size
+            let mut col_size = val.len();
+
+            // If size of already processed columns and size of current column exceeds `max_width`
+            if size + col_size > table.max_width {
+                // Trim `col_size` to space, that's left (`max_width` - `size`)
+                col_size = table.max_width - size;
+            }
+
+            // Push `col_size` to cached widths
+            table.widths.push(col_size);
+
+            // Update header row size
+            size += col_size;
+        }
+
+        for row in rows {
+            // Manually add each row, for widths cache to be updated
+            table.push_row(row.clone()).unwrap()
+        }
 
         table
     }
@@ -168,21 +199,6 @@ impl Table {
         table
     }
 
-    /// Trims given `AttributeString` to `Self::max_width - 3` and appending `...` at the end
-    /// Trims only if length of `AttributeString` exceeds `Self::max_width - 3`
-    fn trim(&self, mut s: AttributeString) -> AttributeString {
-        if self.max_width != 0 && s.len() >= self.max_width - 3 {
-            s.truncate(self.max_width - 3);
-            s.push_str("...");
-        }
-        s
-    }
-
-    /// Setter for `max_width`
-    pub fn set_max_width(&mut self, max_width: usize) {
-        self.max_width = max_width;
-    }
-
     /// Checks that row has same number of elements as the header
     fn check_row(&self, data: &[AttributeString]) -> Result<(), String> {
         if !self.header.values.is_empty() && data.len() != self.header.len() {
@@ -196,36 +212,41 @@ impl Table {
     pub fn push_row(&mut self, row: Row) -> Result<(), String> {
         self.check_row(&row.values)?;
 
-        self.rows.push(
-            row.map(|s| self.trim(s.clone()))
-        );
+        // Total size of row in symbols
+        let mut size: usize = 0;
 
-        for (i, value) in self.rows.last().unwrap().values.iter().enumerate() {
-            if value.len() > self.widths[i] {
-                self.widths[i] = value.len();
+        for (i, value) in row.values.iter().enumerate() {
+            // Size of column
+            let mut col_size = value.len();
+
+            // If size of already processed columns and size of current column exceeds `max_width`
+            if size + col_size > self.max_width {
+                // Trim `col_size` to space, that's left (`max_width` - `size`)
+                col_size = self.max_width - size - 1;
             }
+
+            // If `col_size` is bigger than cached max width for current column
+            if col_size > self.widths[i] {
+                // Update cached value
+                self.widths[i] = col_size;
+            } else {
+                // Check if cached value doesn't already exceed `max_width`
+                if size + self.widths[i] > self.max_width {
+                    // Reduce cached value to actual max value for this column
+                    self.widths[i] = col_size;
+                }
+                // Set `col_size` to relevant value from cache
+                col_size = self.widths[i];
+            }
+
+            // Update row size
+            size += col_size + 1;
         }
+
+        // Save row
+        self.rows.push(row);
 
         Ok(())
-    }
-
-    /// Calculate max widths of each column, from header and rows
-    fn calculate_max_widths(&self) -> Vec<usize> {
-        let mut widths = Vec::new();
-
-        for val in self.header.values.iter() {
-            widths.push(val.len());
-        }
-
-        for row in self.rows.iter() {
-            for (i, val) in row.values.iter().enumerate() {
-                if val.len() > widths[i] {
-                    widths[i] = val.len();
-                }
-            }
-        }
-
-        widths
     }
 
     /// Prints single row
@@ -237,29 +258,63 @@ impl Table {
     /// `ignore_empty` - will not print, if at least one of the values is empty
     ///
     fn print_row(&self,row: &Vec<AttributeString>, ignore_empty: bool) {
+        // Total size of row in symbols
+        let mut size = 0;
+
         for (i, val) in row.iter().enumerate() {
             if ignore_empty && val.len() == 0 {
                 return;
             }
 
+            // Creates `str` - column value, trimmed to `max_width`, if needed, and `overflowed` -
+            // leftover/trimmed part of column, which can't fit in original row
+            let (str, overflowed) =  if size + val.len() > self.max_width {
+                // If current column can't fit - split it into 2 parts - first is printed in
+                // current column (and fits into `max_width` along with everything that was already
+                // printed), and second - which is padded, and printed in the next row
+                let (part1, part2) = val.string().split_at(self.max_width - size - 1);
+                (part1, Some(part2))
+            } else {
+                // If current column fits - return it as-is
+                (val.string().as_str(), None)
+            };
+
             // Applies any text/color modifications
             val.attrs_apply();
 
             match if i >= self.padding.len() {
-                Padding::Left
+                Padding::None
             } else {
                 self.padding[i]
             } {
+                Padding::None => {
+                    print!("{}", str);
+                }
                 Padding::Left => {
-                    print!("{:width$} ", val.string(), width = self.widths[i]);
+                    print!("{:width$}", str, width = self.widths[i]);
                 }
                 Padding::Right => {
-                    print!("{:>width$} ", val.string(), width = self.widths[i]);
+                    print!("{:>width$}", str, width = self.widths[i]);
                 }
+            }
+
+            if let Some(overflowed) = overflowed {
+                // If overflowed text is present - remove attributes (so that, for example BG
+                // color isn't printed to the end on the line)
+                val.attrs_reset();
+                println!();
+                // Reapply attributes
+                val.attrs_apply();
+                // Print overflowed text in the next line, left-padded with spaces to the start
+                // of original column
+                print!("{:width$}{}", "", overflowed, width = size);
             }
 
             // Resets all text modifications
             val.attrs_reset();
+
+            // Update size with max width of current column
+            size += self.widths[i];
         }
 
         println!();
