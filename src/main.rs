@@ -39,7 +39,7 @@
 //!
 //! Note: `Crate Name` fields in symbols and crates tables are derived from demangled symbol name.
 //! Currently, crate name is a rough guess, it's a known issue.
-//! 
+//!
 //! If you want to analyze artifact, produced with a different cargo profile, use `--profile`/`-p`
 //! flag:
 //!
@@ -67,13 +67,6 @@
 //!
 //! ```rust,ignore
 //! $ binsize --percentage-threshold 1.2 5.0 --size-threshold 500 1200
-//! ```
-//!
-//! If some symbol has too big of a name, and it got trimmed, you can use `--width`/`-w` to increase
-//! (or decrease) maximal width of symbol name:
-//!
-//! ```rust,ignore
-//! $ binsize -c 120
 //! ```
 //!
 //! If you want to sort symbols by size, use `--asc`/`-a` or `--desc`/`-d`:
@@ -205,9 +198,6 @@ struct Binsize {
     /// Colorful output toggle
     color: bool,
 
-    /// Max width of column in `Table`
-    width: usize,
-
     /// Sorting order of symbols
     symbols_sorting_order: Option<SortOrder>,
 
@@ -240,7 +230,6 @@ impl Binsize {
             ld_file: "".to_string(),
             file: "".to_string(),
             color: false,
-            width: 50,
             symbols_sorting_order: None,
             percentage_threshold_yellow: 0.5,
             percentage_threshold_red: 1.0,
@@ -306,10 +295,6 @@ impl Binsize {
                             panic!("Invalid value for key 'sort': '{} (possible values: asc, desc)'", val);
                         }
                     }
-                }
-
-                if let Some(toml::Value::Integer(val)) = binsize.get("width") {
-                    self.width = *val as usize;
                 }
 
                 if let Some(toml::Value::Array(val)) = binsize.get("size-threshold") {
@@ -387,12 +372,6 @@ impl Binsize {
                     &["FILTER"],
                     "Filter symbol names by this value. Supports regex"
                 ),
-                args::Argument::new_value(
-                    "width",
-                    &["--width", "-w"],
-                    &["WIDTH"],
-                    "Max width of symbol name (default: 80)"
-                ),
                 args::Argument::new_flag(
                     "asc",
                     &["--asc", "-a"],
@@ -459,12 +438,6 @@ impl Binsize {
                         .clone()
                         .as_str()
                     ).unwrap();
-                }
-                "width" => {
-                    self.width = arg.values.get(0)
-                        .expect("Missing value for --width")
-                        .parse::<usize>()
-                        .expect("width must be a number");
                 }
                 "ld-memory-map" => {
                     self.ld_file = arg.values.get(0)
@@ -551,8 +524,6 @@ impl Binsize {
             }),
             &[Padding::Right, Padding::Right, Padding::Right, Padding::Right, Padding::Left]
         );
-
-        table.set_max_width(self.width);
 
         for sym in &self.exe.symbols {
             if sym.size != 0 {
