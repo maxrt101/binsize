@@ -127,7 +127,6 @@
 //! ld-file = "boards/stm32l051/memory.x"
 //! filter = "std"
 //! sort = "asc"
-//! width = 100
 //! size-threshold = [5000, 10000]
 //! percentage-threshold = [0.5, 1.0]
 //! ```
