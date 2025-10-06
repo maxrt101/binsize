@@ -709,7 +709,7 @@ impl Binsize {
             for reg in regions.iter_mut() {
                 let mut row = Row::default();
 
-                row.push(reg.name.clone().into());
+                row.push((reg.name.clone() + " ").into());
                 row.push(format!("0x{:08x} ", reg.origin).into());
                 row.push(format!("{} ", reg.used).into());
                 row.push(format!("{} ", reg.length).into());
