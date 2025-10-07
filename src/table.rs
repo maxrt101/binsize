@@ -249,6 +249,23 @@ impl Table {
         Ok(())
     }
 
+    /// Prints overflowed part of the column
+    fn print_overflow(val: &AttributeString, overflowed: &str, size: usize) {
+        // If overflowed text is present - remove attributes (so that, for example BG
+        // color isn't printed to the end on the line)
+        val.attrs_reset();
+
+        // Print newline
+        println!();
+
+        // Reapply attributes
+        val.attrs_apply();
+
+        // Print overflowed text in the next line, left-padded with spaces to the start
+        // of original column
+        print!("{:width$}{}", "", overflowed, width = size);
+    }
+
     /// Prints single row
     ///
     /// Will use
@@ -266,8 +283,8 @@ impl Table {
                 return;
             }
 
-            // Creates `str` - column value, trimmed to `max_width`, if needed, and `overflowed` -
-            // leftover/trimmed part of column, which can't fit in original row
+            // Creates `str` - column value, trimmed to `max_width` (if needed), and `overflowed` -
+            // leftover/trimmed part of the column, which can't fit into original row
             let (str, overflowed) =  if size + val.len() > self.max_width {
                 // If current column can't fit - split it into 2 parts - first is printed in
                 // current column (and fits into `max_width` along with everything that was already
@@ -298,16 +315,22 @@ impl Table {
                 }
             }
 
+            // If overflowed text is present
             if let Some(overflowed) = overflowed {
-                // If overflowed text is present - remove attributes (so that, for example BG
-                // color isn't printed to the end on the line)
-                val.attrs_reset();
-                println!();
-                // Reapply attributes
-                val.attrs_apply();
-                // Print overflowed text in the next line, left-padded with spaces to the start
-                // of original column
-                print!("{:width$}{}", "", overflowed, width = size);
+                // Redeclare for mutability
+                let mut overflowed = overflowed;
+
+                // While can split at max width (in other words - while overflowed text is present)
+                while let Some((current, next)) = overflowed.split_at_checked(self.max_width - size) {
+                    // Print first part of overflowed text (sliced at `max_width`, so it can fit)
+                    Self::print_overflow(val, current, size);
+
+                    // Set overflowed to the rest of overflowed text, which wasn't printed
+                    overflowed = next;
+                }
+
+                // Print last overflowed part
+                Self::print_overflow(val, overflowed, size);
             }
 
             // Resets all text modifications
