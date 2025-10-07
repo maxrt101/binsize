@@ -651,7 +651,7 @@ impl Binsize {
 
         for (name, size) in crates {
             table.push_row([
-                (*name).clone(),
+                (*name).clone() + " ",
                 format!("{} ", size)
             ].into()).unwrap();
         }
@@ -676,7 +676,7 @@ impl Binsize {
 
         for section in self.exe.sections.iter() {
             table.push_row([
-                section.name.clone(),
+                section.name.clone() + " ",
                 format!("0x{:08x} ", section.addr),
                 format!("{} ", section.size)
             ].into()).unwrap();
