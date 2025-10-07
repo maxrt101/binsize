@@ -25,18 +25,6 @@ impl BuildOptions {
         Self { profile, message_format }
     }
 
-    /// Overrides profile value, consuming `BuildOptions` and returning a new one
-    pub fn profile(mut self, profile: &str) -> Self {
-        self.profile = profile.to_string();
-        self
-    }
-
-    /// Overrides message_format value, consuming `BuildOptions` and returning a new one
-    pub fn message_format(mut self, message_format: &str) -> Self {
-        self.message_format = message_format.to_string();
-        self
-    }
-
     /// Builds options into vector of command-line arguments to cargo
     pub fn args(&self) -> Vec<String> {
         let mut args = vec!["build".to_string()];
@@ -135,10 +123,12 @@ pub fn build(opt: BuildOptions) -> Result<(), String> {
 }
 
 /// Parse `cargo-build` json output, and produce a list or build artifacts
-pub fn artifacts(opt: BuildOptions) -> Vec<BuildArtifact> {
+pub fn artifacts(mut opt: BuildOptions) -> Vec<BuildArtifact> {
+    opt.message_format = "json".to_string();
+
     // Won't actually build the project, because of `--message-format=json` (or at least I think it won't)
     let cargo_build_info = Command::new("cargo")
-        .args(opt.message_format("json").args())
+        .args(opt.args())
         .output()
         .expect("cargo build failed");
 
