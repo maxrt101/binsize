@@ -208,14 +208,26 @@ impl Output {
         self.outputs |= kind as u8;
     }
 
-    /// Returns `true` if any output is enabled
-    pub fn any_enabled(&self) -> bool {
-        self.outputs != 0
+    /// Disable an output for table denoted with `kind`
+    pub fn disable(&mut self, kind: OutputKind) {
+        self.outputs &= !(kind as u8);
     }
 
     /// Returns true if table denoted by `kind` is enabled for output
     pub fn enabled(&self, kind: OutputKind) -> bool {
         self.outputs & (kind as u8) != 0
+    }
+
+    /// Returns `true` if any output is enabled
+    pub fn any_enabled(&self) -> bool {
+        self.outputs != 0
+    }
+
+    /// Disables a column `field` in table denoted by `kind`
+    pub fn field_disable(&mut self, kind: OutputKind, field: u8) {
+        if let Some(value) = self.fields.get_mut(&kind) {
+            *value &= !field;
+        }
     }
 
     /// Returns true if column `field` in table denoted by `kind` is enabled for output
@@ -278,9 +290,9 @@ impl Output {
         }
 
         if enable {
-            self.outputs |= output_kind as u8;
+            self.enable(output_kind);
         } else {
-            self.outputs &= !(output_kind as u8);
+            self.disable(output_kind);
         }
 
         if let Some(mask) = self.fields.get_mut(&output_kind) {
