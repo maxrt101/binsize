@@ -50,15 +50,6 @@ impl Row {
     pub fn push(&mut self, value: AttributeString) {
         self.values.push(value);
     }
-
-    /// Map each `AttributeString` inside a row, into another `AttributeString`
-    /// while consuming original `Row` and returning a new one
-    ///
-    /// TODO: It seems pretty strange that while `Row` is consumed, `F` still
-    ///       must receive a reference instead of moved value?
-    pub fn map<F: FnMut(&AttributeString) -> AttributeString>(self, f: F) -> Self {
-        Row::new(self.values.iter().map(f).collect::<Vec<_>>().as_slice())
-    }
 }
 
 impl Default for Row {
