@@ -14,10 +14,12 @@ symbols. Main difference is that `binsize` parses *all* symbols (both functions 
 data/constants), except for those with a size of 0. `binsize` also provides advanced output control,
 sections usage & memory region usage (if provided with a path to linker script that has a `MEMORY` definition)  
 
+Note: `binsize` was tested with C/C++ executables, and should work by passing them with `--file`.  
+
 Note: file, that is being analyzed, must have `.symtab` section, otherwise `binsize` won't
 be able to parse exported symbols. So don't strip your binaries, if you want this to work.  
 
-Note: this is only a prototype, bugs are expected.  
+Note: this is only a prototype, bugs are expected.
 
 ## Installation
 
