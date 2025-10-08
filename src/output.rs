@@ -239,7 +239,7 @@ impl Output {
     ///
     pub fn apply_pattern(&mut self, pattern: &str) {
         let mut enable = true;
-        let mut output_kind = OutputKind::None;
+        let output_kind: OutputKind;
         let mut field_mask = 0;
 
         // If pattern start with `!` - it's a disable/disallow pattern, so invert `enable` and skip
