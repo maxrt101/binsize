@@ -60,6 +60,8 @@ static CRATE_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
 
 /// Tries to guess a crate from mangled symbol. Uses regex magic
 pub fn crate_name_from_demangled(s: &str) -> String {
+    // TODO: Rewrite
+    //
     // This *should* match most symbols
     //
     // It works by matching (and discarding) any of `<`, `&`, `*`, `const`, `mut` `dyn` and then
@@ -76,6 +78,11 @@ pub fn crate_name_from_demangled(s: &str) -> String {
     //
     // But sometimes an integral type (or `T`) implements some trait, if that happens, this code
     // will consider trait's crate to be the correct one.
+    //
+    // As for generics instantiation for concrete types: `core::ptr::drop_in_place<rtrs::RwLock>`,
+    // I think `core` should be matched as the crate, because `drop_in_place` is defined in `core`,
+    // even if instantiating type is from another crate, the code of `drop_in_place` is still in
+    // `core`
     //
     // # Examples
     //
