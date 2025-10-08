@@ -6,7 +6,6 @@
 
 use object::{File, Object, ObjectSection, ObjectSegment, ObjectSymbol};
 use std::fmt::{Display, Formatter};
-use std::sync::OnceLock;
 use crate::util::SortOrder;
 use crate::demangle::{DemangledSymbolKind, demangle, crate_name_from_demangled};
 
