@@ -101,29 +101,67 @@ impl Default for ExecutableInfo {
     }
 }
 
+/// Kind of demangled symbol by language
+#[derive(PartialEq, Eq)]
+enum DemangledSymbolKind {
+    Rust,
+    Cpp,
+    Other
+}
+
+/// Demangled symbol
+struct DemangledSymbol {
+    kind: DemangledSymbolKind,
+    name: String,
+}
+
 /// Demangles a symbol using `rustc_demangle` + removes trailing hash, that `rustc` adds
-fn demangle(s: &str) -> String {
+/// If demangling wasn't successful, will try to treat it as a C++ symbol, and if that also
+/// fails - will return mangled version
+fn demangle(s: &str) -> DemangledSymbol {
     let mut name = rustc_demangle::demangle(s).to_string();
 
-    // Taken as-is from binfarce
-    if let Some(pos) = name.bytes().rposition(|b| b == b':') {
-        name.drain((pos - 1)..);
+    // If demangling was successful
+    if name != s {
+        // Taken as-is from binfarce
+        if let Some(pos) = name.bytes().rposition(|b| b == b':') {
+            name.drain((pos - 1)..);
+        }
+
+        return DemangledSymbol {
+            kind: DemangledSymbolKind::Rust,
+            name
+        };
+    } else {
+        // Try with C++ demangler
+        if let Ok(sym) = cpp_demangle::Symbol::new(s) {
+            if let Ok(val) = sym.demangle() {
+                return DemangledSymbol {
+                    kind: DemangledSymbolKind::Cpp,
+                    name: val
+                };
+            }
+        }
     }
 
-    name
+    // Return symbol name as-is
+    DemangledSymbol {
+        kind: DemangledSymbolKind::Other,
+        name: s.to_string(),
+    }
 }
 
 /// Compiled regex pattern for roughly guessing crate name from symbol
 static CRATE_PATTERN: OnceLock<regex::Regex> = OnceLock::new();
 
 /// Tries to guess a crate from mangled symbol. Uses `demangle()` and regex magic
-fn demangle_crate(s: &str) -> String {
+fn extract_crate_name(s: &str) -> String {
     // TODO: Should be improved, as sometimes it guesses wrong
     //       For example: `core  <rtrs::log::record::DefaultRecord as core::fmt::Display>::fmt`
     //       This function returned `core`, although it's an impl for core trait, but for a type in `rtrs` crate
     let re = CRATE_PATTERN.get_or_init(|| regex::Regex::new(r"^<?&?(.+as )?(dyn )?(\w+):").unwrap());
 
-    if let Some(c) = re.captures(demangle(s).as_str()) {
+    if let Some(c) = re.captures(s) {
         c.get(3).unwrap().as_str().to_string()
     } else {
         "?".to_string()
@@ -159,16 +197,27 @@ pub fn parse(path: &std::path::Path) -> Result<ExecutableInfo, Box<dyn std::erro
 
     let mut symbols = exe.symbols()
         .map(
-            |s| Symbol {
-                name:       demangle(s.name().unwrap_or("?")),
-                crate_name: demangle_crate(s.name().unwrap_or("?")),
-                size:       s.size() as usize,
-                addr:       s.address() as usize,
-                kind: match s.kind() {
-                    object::SymbolKind::Text => SymbolKind::Function,
-                    object::SymbolKind::Data => SymbolKind::Data,
-                    _                        => SymbolKind::Unknown,
-                },
+            |s| {
+                let demangled = demangle(s.name().unwrap_or("?"));
+
+                // Try to guess crate, only if symbol is from rust
+                let extracted_crate = if demangled.kind == DemangledSymbolKind::Rust {
+                    extract_crate_name(demangled.name.as_str())
+                } else {
+                    "?".to_string()
+                };
+
+                Symbol {
+                    name:       demangled.name,
+                    crate_name: extracted_crate,
+                    size:       s.size() as usize,
+                    addr:       s.address() as usize,
+                    kind: match s.kind() {
+                        object::SymbolKind::Text => SymbolKind::Function,
+                        object::SymbolKind::Data => SymbolKind::Data,
+                        _                        => SymbolKind::Unknown,
+                    },
+                }
             }
         )
         .filter(|s| s.kind != SymbolKind::Unknown)
