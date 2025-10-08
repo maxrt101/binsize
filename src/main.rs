@@ -179,6 +179,7 @@ mod util;
 mod attr_str;
 mod link;
 mod output;
+mod demangle;
 
 /// `binsize` version
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -1005,7 +1006,8 @@ impl Binsize {
         let mut table = Table::with_header_and_padding(header, paddings.as_slice());
 
         // TODO: Shouldn't clone() ld_file
-        let mut regions = link::MemoryRegion::from_file(&self.ld_file.clone().into()).unwrap();
+        let mut regions = link::MemoryRegion::from_file(&self.ld_file.clone().into())
+            .expect("Failed to open LD file");
 
         link::MemoryRegion::use_segments_data(&mut regions, &self.exe.segments);
 
