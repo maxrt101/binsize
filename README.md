@@ -11,13 +11,13 @@
 `binsize` is a command-line utility that provides analysis of size/memory usage of rust
 binaries. It was inspired by `cargo-bloat`, but with a different approach to retrieving
 symbols. Main difference is that `binsize` parses *all* symbols (both functions and
-data/constants), except for those with a size of 0. `binsize` also provides colored output,
-section & memory region usage (if provided with a path to linker script that has a `MEMORY` definition)
+data/constants), except for those with a size of 0. `binsize` also provides advanced output control,
+sections usage & memory region usage (if provided with a path to linker script that has a `MEMORY` definition)  
 
 Note: file, that is being analyzed, must have `.symtab` section, otherwise `binsize` won't
-be able to parse exported symbols. So don't strip your binaries, if you want this to work.
+be able to parse exported symbols. So don't strip your binaries, if you want this to work.  
 
-Note: this is only a prototype, bugs are expected.
+Note: this is only a prototype, bugs are expected.  
 
 ## Installation
 
@@ -55,7 +55,7 @@ If you want to analyze artifact, produced with a different cargo profile, use `-
 flag:  
 
 ```shell
-$ binsize -p release
+$ binsize --profile release
 ```
 
 If you want to skip building through cargo, or want to analyze some other binary, pass a path
@@ -68,7 +68,7 @@ $ binsize --file ~/projects/super-cool-project/target/release/super-cool-project
 If you want to enable colored output, use `--color`/`-c` flag:  
 
 ```shell
-$ binsize -c
+$ binsize --color
 ```
 
 With enabled colorful output, you'll see that `Size` & `Percentage` columns became green,
@@ -86,11 +86,29 @@ If you want to sort symbols by size, use `--asc`/`-a` or `--desc`/`-d`:
 $ binsize --asc
 ```
 
-If you want to specify what information you'd like to see - use `--output`/`-o`.
-Possible values are: `sym|symbols`, `sec|sections|`, `seg|segments`, `cr|crates`. By default, only `symbols` are shown:
+If you want to specify what information you'd like to see - use `--output`/`-o`.  
+Possible values are: `sym/symbols`, `sec/sections`, `seg/segments`, `cr/crates`, `*/all`.  
+Columns for each output table can be specified using `OUTPUT=FIELDS` syntax (where `OUTPUT` is one of aforementioned values and `FIELDS` is a comma-separated list of columns).  
+For symbol table possible fields are: `*/all`, `s/size`, `%/p/percent`, `k/kind`, `c/crate`, `n/name`.  
+For crate table possible fields are: `*/all`, `n/name`, `s/size`.  
+For section table possible fields are: `*/all`, `n/name`, `a/addr`, `s/size`.  
+For segment table possible fields are: `*/all`, `n/name`, `a/addr`, `u/used`, `s/size`, `%/p/percent`.  
+By default, only `symbols` are shown:  
 
 ```shell
-$ binsize --output sections,crates
+$ binsize --output sections --output crates
+```
+
+It is also possible to disallow a previously allowed output by using `!`:
+
+```shell
+$ binsize --output !sections
+```
+
+If you want to filter symbols by some pattern - use `-f`/`--filter`. Filters support regex:  
+
+```shell
+$ binsize --filter "core.+fmt"
 ```
 
 For embedded projects, I really like GCC's `--print-memory-usage` linker flag, but using rust and
@@ -110,7 +128,7 @@ MEMORY
 The `--ld-memory-map`/`-l` is used to pass the path:  
 
 ```shell
-$ binsize -l boards/stm32l051/memory.x
+$ binsize --ld-memory-map boards/stm32l051/memory.x
 ```
 
 After running this, you'll get a table at the very bottom of the output with columns:  
