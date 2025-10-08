@@ -7,6 +7,8 @@
 //! advanced output control, sections usage & memory region usage (if provided with a path to
 //! linker script that has a `MEMORY` definition)
 //!
+//! Note: `binsize` was tested with C/C++ executables, and should work by passing them with `--file`.
+//!
 //! Note: file, that is being analyzed, must have `.symtab` section, otherwise `binsize` won't
 //! be able to parse exported symbols. So don't strip your binaries, if you want this to work.
 //!
@@ -672,6 +674,19 @@ impl Binsize {
         
         if let Some(order) = &self.symbols_sorting_order {
             self.exe.sort_symbols(*order);
+        }
+
+        // Check if at least one symbol has a crate name
+        let has_crate_names = self.exe.symbols.iter()
+            .filter(|s| s.crate_name != "?").peekable().peek().is_some();
+
+        // If no symbols have a crate name
+        if !has_crate_names {
+            // Disable `Crate` column in `Symbols` table
+            self.output.field_disable(Symbols, Crate as u8);
+
+            // Disable `Crates` table
+            self.output.disable(Crates);
         }
 
         let total = self.exe.symbols.iter()
