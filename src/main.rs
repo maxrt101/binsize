@@ -4,8 +4,8 @@
 //! binaries. It was inspired by `cargo-bloat`, but with a different approach to retrieving
 //! symbols. Main difference is that `binsize` parses *all* symbols (both functions and
 //! data/constants), except for those with a size of 0. `binsize` also provides colored output,
-//! sections & memory region usage (if provided with a path to linker script that has a `MEMORY`
-//! definition)
+//! advanced output control, sections usage & memory region usage (if provided with a path to
+//! linker script that has a `MEMORY` definition)
 //!
 //! Note: file, that is being analyzed, must have `.symtab` section, otherwise `binsize` won't
 //! be able to parse exported symbols. So don't strip your binaries, if you want this to work.
@@ -44,7 +44,7 @@
 //! flag:
 //!
 //! ```rust,ignore
-//! $ binsize -p release
+//! $ binsize --profile release
 //! ```
 //!
 //! If you want to skip building through cargo, or want to analyze some other binary, pass a path
@@ -57,7 +57,7 @@
 //! If you want to enable colored output, use `--color`/`-c` flag:
 //!
 //! ```rust,ignore
-//! $ binsize -c
+//! $ binsize --color
 //! ```
 //!
 //! With enabled colorful output, you'll see that `Size` & `Percentage` columns became green,
@@ -76,11 +76,31 @@
 //! ```
 //!
 //! If you want to specify what information you'd like to see - use `--output`/`-o`. Possible
-//! values are: `sym|symbols`, `sec|sections|`, `seg|segments`, `cr|crates`. By default,
-//! only `symbols` are shown:
+//! values are: `sym/symbols`, `sec/sections`, `seg/segments`, `cr/crates`, `*/all`. Columns
+//! for each output table can be specified using `OUTPUT=FIELDS` syntax (where `OUTPUT` is one
+//! of aforementioned values and `FIELDS` is a comma-separated list of columns).
+//! For symbol table possible fields are: `*/all`, `s/size`, `%/p/percent`, `k/kind`, `c/crate`,
+//! `n/name`.
+//! For crate table possible fields are: `*/all`, `n/name`, `s/size`.
+//! For section table possible fields are: `*/all`, `n/name`, `a/addr`, `s/size`.
+//! For segment table possible fields are: `*/all`, `n/name`, `a/addr`, `u/used`, `s/size`,
+//! `%/p/percent`.
+//! By default, only `symbols` are shown:
 //!
 //! ```rust,ignore
-//! $ binsize --output sections,crates
+//! $ binsize --output sections --output crates
+//! ```
+//!
+//! It is also possible to disallow a previously allowed output by using `!`:
+//!
+//! ```rust,ignore
+//! $ binsize --output !sections
+//! ```
+//!
+//! If you want to filter symbols by some pattern - use `-f`/`--filter`. Filters support regex:
+//!
+//! ```rust,ignore
+//! $ binsize --filter "core.+fmt"
 //! ```
 //!
 //! For embedded projects, I really like GCC's --print-memory-usage linker flag, but using rust and
@@ -100,7 +120,7 @@
 //! The `--ld-memory-map`/`-l` is used to pass the path:
 //!
 //! ```rust,ignore
-//! $ binsize -l boards/stm32l051/memory.x
+//! $ binsize --ld-memory-map boards/stm32l051/memory.x
 //! ```
 //!
 //! After running this, you'll get a table at the very bottom of the output with columns:
@@ -135,11 +155,19 @@
 //!
 
 use std::collections::HashMap;
-use crate::table::{Padding, Row, Table};
-use crate::attr_str::{Attribute, AttributeString};
-use crate::cargo::BuildOptions;
-use crate::exe::{ExecutableInfo, SymbolKind};
 use crate::util::SortOrder;
+use crate::cargo::BuildOptions;
+use crate::table::{Padding, Row, Table};
+use crate::exe::{ExecutableInfo, SymbolKind};
+use crate::attr_str::{Attribute, AttributeString};
+use crate::output::{
+    Output,
+    OutputKind,
+    SymbolTableFields,
+    CrateTableFields,
+    SectionTableFields,
+    SegmentTableFields
+};
 
 mod cargo;
 mod exe;
@@ -148,6 +176,7 @@ mod table;
 mod util;
 mod attr_str;
 mod link;
+mod output;
 
 /// `binsize` version
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -155,29 +184,10 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// `binsize` config file location
 const CONFIG: &str = ".cargo/binsize.toml";
 
-///
-enum Output {
-    Symbols  = 1 << 0,
-    Sections = 1 << 1,
-    Segments = 1 << 2,
-    Crates   = 1 << 3,
-    None     = 0,
-    All      = 0xff,
-}
 
-impl TryFrom<&str> for Output {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "*"   | "all"      => Ok(Output::All),
-            "sym" | "symbols"  => Ok(Output::Symbols),
-            "sec" | "sections" => Ok(Output::Sections),
-            "seg" | "segments" => Ok(Output::Segments),
-            "cr"  | "crates"   => Ok(Output::Crates),
-            _                  => Err("Invalid output type".into()),
-        }
-    }
+/// Helper function for applying styling to column headers
+fn color_header_fn(s: &mut AttributeString) {
+    s.push_attr(Attribute::TextBold);
 }
 
 /// `binsize` Application
@@ -212,9 +222,8 @@ struct Binsize {
     /// Threshold in bytes for symbol to be colored red
     size_threshold_red: usize,
 
-    /// What to output
-    // TODO: Isn't overridden by args
-    output: u8,
+    /// Output control context
+    output: Output,
 
     /// Executable info
     exe: ExecutableInfo,
@@ -224,105 +233,104 @@ impl Binsize {
     /// Create new `binsize` application
     fn new() -> Self {
         Self {
-            build_options: Default::default(),
-            filter: regex::Regex::new(".+").unwrap(),
-            ld_file: "".to_string(),
-            file: "".to_string(),
-            color: false,
-            symbols_sorting_order: None,
+            build_options:               Default::default(),
+            filter:                      regex::Regex::new(".+").unwrap(),
+            ld_file:                     "".to_string(),
+            file:                        "".to_string(),
+            color:                       false,
+            output:                      Output::new(),
+            exe:                         Default::default(),
+            symbols_sorting_order:       None,
+            size_threshold_yellow:       200,
+            size_threshold_red:          500,
             percentage_threshold_yellow: 0.5,
-            percentage_threshold_red: 1.0,
-            size_threshold_yellow: 200,
-            size_threshold_red: 500,
-            output: Output::None as u8,
-            exe: ExecutableInfo::default(),
+            percentage_threshold_red:    1.0,
         }
     }
 
     /// Parse config in `.cargo/binsize.toml`, if available
     fn parse_config(&mut self) {
-        if matches!(std::fs::exists(CONFIG), Ok(true)) {
-            let config = std::fs::read_to_string(CONFIG).expect("Failed to read config file");
-            let cfg = toml::from_str::<toml::Table>(config.as_str()).unwrap();
+        if !matches!(std::fs::exists(CONFIG), Ok(true)) {
+            return;
+        }
 
-            if cfg.contains_key("binsize") {
-                let binsize = cfg.get("binsize")
-                    .expect("Config file must contain a [binsize] section")
-                    .as_table()
-                    .expect("[binsize] must be a table]");
+        let config = std::fs::read_to_string(CONFIG).expect("Failed to read config file");
+        let cfg = toml::from_str::<toml::Table>(config.as_str()).unwrap();
 
-                if let Some(toml::Value::Boolean(val)) = binsize.get("color") {
-                    self.color = *val;
+        if cfg.contains_key("binsize") {
+            let binsize = cfg.get("binsize")
+                .expect("Config file must contain a [binsize] section")
+                .as_table()
+                .expect("[binsize] must be a table]");
+
+            if let Some(toml::Value::Boolean(val)) = binsize.get("color") {
+                self.color = *val;
+            }
+
+            if let Some(toml::Value::String(val)) = binsize.get("profile") {
+                self.build_options.profile = val.clone();
+            }
+
+            if let Some(toml::Value::Array(val)) = binsize.get("output") {
+                for s in val {
+                    let str = s.as_str().expect("Output should be a string");
+
+                    self.output.apply_pattern(str.try_into().unwrap());
                 }
+            }
 
-                if let Some(toml::Value::String(val)) = binsize.get("profile") {
-                    self.build_options.profile = val.clone();
-                }
+            if let Some(toml::Value::String(val)) = binsize.get("file") {
+                self.file = val.clone();
+            }
 
-                if let Some(toml::Value::Array(val)) = binsize.get("output") {
-                    for s in val {
-                        let out: Output = s.as_str()
-                            .expect("output values must be strings")
-                            .try_into()
-                            .unwrap();
+            if let Some(toml::Value::String(val)) = binsize.get("filter") {
+                self.filter = regex::Regex::new(val.as_str()).unwrap();
+            }
 
-                        self.output |= out as u8;
+            if let Some(toml::Value::String(val)) = binsize.get("ld-file") {
+                self.ld_file = val.clone();
+            }
+
+            if let Some(toml::Value::String(val)) = binsize.get("sort") {
+                match val.as_str() {
+                    "asc" => {
+                        self.symbols_sorting_order = Some(SortOrder::Ascending);
+                    }
+                    "desc" => {
+                        self.symbols_sorting_order = Some(SortOrder::Descending);
+                    }
+                    _ => {
+                        panic!("Invalid value for key 'sort': '{} (possible values: asc, desc)'", val);
                     }
                 }
+            }
 
-                if let Some(toml::Value::String(val)) = binsize.get("file") {
-                    self.file = val.clone();
-                }
+            if let Some(toml::Value::Array(val)) = binsize.get("size-threshold") {
+                self.size_threshold_yellow = val.get(0)
+                    .expect("Missing first value for key 'size-threshold'")
+                    .as_integer()
+                    .expect("Values for key 'size-threshold' must be an integer")
+                    as usize;
 
-                if let Some(toml::Value::String(val)) = binsize.get("filter") {
-                    self.filter = regex::Regex::new(val.as_str()).unwrap();
-                }
+                self.size_threshold_red = val.get(1)
+                    .expect("Missing second value for key 'size-threshold'")
+                    .as_integer()
+                    .expect("Values for key 'size-threshold' must be an integer")
+                    as usize;
+            }
 
-                if let Some(toml::Value::String(val)) = binsize.get("ld-file") {
-                    self.ld_file = val.clone();
-                }
+            if let Some(toml::Value::Array(val)) = binsize.get("percentage-threshold") {
+                self.percentage_threshold_yellow = val.get(0)
+                    .expect("Missing first value for key 'size-threshold'")
+                    .as_float()
+                    .expect("Values for key 'size-threshold' must be a float")
+                    as f32;
 
-                if let Some(toml::Value::String(val)) = binsize.get("sort") {
-                    match val.as_str() {
-                        "asc" => {
-                            self.symbols_sorting_order = Some(SortOrder::Ascending);
-                        }
-                        "desc" => {
-                            self.symbols_sorting_order = Some(SortOrder::Descending);
-                        }
-                        _ => {
-                            panic!("Invalid value for key 'sort': '{} (possible values: asc, desc)'", val);
-                        }
-                    }
-                }
-
-                if let Some(toml::Value::Array(val)) = binsize.get("size-threshold") {
-                    self.size_threshold_yellow = val.get(0)
-                        .expect("Missing first value for key 'size-threshold'")
-                        .as_integer()
-                        .expect("Values for key 'size-threshold' must be an integer")
-                        as usize;
-
-                    self.size_threshold_red = val.get(1)
-                        .expect("Missing second value for key 'size-threshold'")
-                        .as_integer()
-                        .expect("Values for key 'size-threshold' must be an integer")
-                        as usize;
-                }
-
-                if let Some(toml::Value::Array(val)) = binsize.get("percentage-threshold") {
-                    self.percentage_threshold_yellow = val.get(0)
-                        .expect("Missing first value for key 'size-threshold'")
-                        .as_float()
-                        .expect("Values for key 'size-threshold' must be a float")
-                        as f32;
-
-                    self.percentage_threshold_red = val.get(1)
-                        .expect("Missing second value for key 'size-threshold'")
-                        .as_float()
-                        .expect("Values for key 'size-threshold' must be a float")
-                        as f32;
-                }
+                self.percentage_threshold_red = val.get(1)
+                    .expect("Missing second value for key 'size-threshold'")
+                    .as_float()
+                    .expect("Values for key 'size-threshold' must be a float")
+                    as f32;
             }
         }
     }
@@ -351,7 +359,7 @@ impl Binsize {
                     "output",
                     &["--output", "-o"],
                     &["OUTPUT"],
-                    "Comma separated list of output values: sym|symbols, sec|sections|, seg|segments, cr|crates (default: all)"
+                    "Comma separated list of output values with optional comma-separated list of columns"
                 ),
                 args::Argument::new_value(
                     "file",
@@ -402,7 +410,14 @@ impl Binsize {
             args::UnexpectedArgumentPolicy::Crash
         );
 
-        for arg in argp.parse(std::env::args().skip(1)).args {
+        let parsed = argp.parse(std::env::args().skip(1));
+
+        // FIXME: Is still needed?
+        // if parsed.contains_arg("output") {
+        //     self.output = Output::None as u8;
+        // }
+
+        for arg in parsed.args {
             match arg.name.as_str() {
                 "help" => {
                     println!("binsize - utility to provide comprehensive information about symbol sizes in compiled binaries");
@@ -420,11 +435,8 @@ impl Binsize {
                         .clone();
                 }
                 "output" => {
-                    for s in arg.values.get(0).expect("Missing value for --output").split(",") {
-                        let out: Output = s.try_into().unwrap();
-
-                        self.output |= out as u8;
-                    }
+                    let val = arg.values.get(0).expect("Missing value for --output");
+                    self.output.apply_pattern(val);
                 }
                 "file" => {
                     self.file = arg.values.get(0)
@@ -483,28 +495,181 @@ impl Binsize {
 
     /// Load executable
     fn load_exe(&mut self) {
+        // If file was specified (either via config of cmdline options)
         let path = if !self.file.is_empty() {
             std::path::PathBuf::from(&self.file)
         } else {
+            // Run `cargo build` to get freshly compiled executable
             if let Err(stderr) = cargo::build(self.build_options.clone()) {
                 println!("{}", stderr);
                 std::process::exit(1);
             }
 
+            // Run `cargo built --message-format=json` to gather info about artifacts produced
+            // by build
             let artifacts = cargo::artifacts(self.build_options.clone());
 
+            // Last artifact should be a `top crate` - executable or a library, for which
+            // a binary would be generated
             let top_crate = artifacts.last()
                 .expect("No top crate");
 
+            // Extract path to binary
             top_crate.path.clone()
         };
 
+        // Parse binary
         self.exe = exe::parse(&path)
             .expect("Failed to parse executable");
     }
 
-    /// Dump symbols
+    /// Helper function to push `str` into `header` and `padding` into `paddings`, only if output
+    /// for this column/field is enabled, and adding color, only of color enabled
+    ///
+    /// # Arguments
+    ///
+    /// * `header` - Row that represents a header in a `Table`
+    /// * `paddings` - Vec of `Padding`, stores padding for each column
+    /// * `output_kind` - Kind of output (sections/segments/etc)
+    /// * `field` - Column/field bitmask
+    /// * `str` - Column name
+    /// * `padding` - Column padding
+    /// * `color_fn` - Function/closure to call, if colorful output is enabled
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use OutputKind::*;
+    /// use SymbolTableFields::*;
+    ///
+    /// let mut header = Row::default();
+    /// let mut paddings = Vec::new();
+    ///
+    /// self.push_into_header_and_padding_color(
+    ///     &mut header, &mut paddings,
+    ///     Symbols, Size as u8,
+    ///     "Size ", Padding::Right,
+    ///     |s| {
+    ///         s.push_attr(Attribute::TextBold);
+    ///     }
+    /// );
+    ///
+    /// let mut table = Table::with_header_and_padding(
+    ///     header,
+    ///     paddings.as_slice()
+    /// );
+    /// ```
+    fn push_into_header_and_padding_color(
+        &self,
+        header:      &mut Row,
+        paddings:    &mut Vec<Padding>,
+        output_kind: OutputKind,
+        field:       u8,
+        str:         &str,
+        padding:     Padding,
+        color_fn:    impl Fn(&mut AttributeString)
+    ) {
+        if !self.output.field_enabled(output_kind, field) {
+            return;
+        }
+
+        paddings.push(padding);
+
+        self.push_into_row_color(header, output_kind, field, str, color_fn);
+    }
+
+    /// Helper function to push `str` into `row` only if output for this column/field is enabled,
+    /// and adding color, only of color enabled
+    ///
+    /// # Arguments
+    ///
+    /// * `row` - Row to append column value to
+    /// * `output_kind` - Kind of output (sections/segments/etc)
+    /// * `field` - Column/field bitmask
+    /// * `str` - Column value
+    /// * `color_fn` - Function/closure to call, if colorful output is enabled
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let table: Table = ...;
+    /// let mut row = Row::default();
+    ///
+    /// self.push_into_row_color(
+    ///     &mut row,
+    ///     Symbols, Name as u8,
+    ///     format!("{} ", sym.name).as_str(),
+    ///     |s| {
+    ///         s.push_attr(Attribute::TextBold)
+    ///     }
+    /// );
+    ///
+    /// table.push_row(row).unwrap();
+    /// ```
+    ///
+    fn push_into_row_color(
+        &self,
+        row: &mut Row,
+        output_kind: OutputKind,
+        field: u8,
+        str: &str,
+        color_fn: impl Fn(&mut AttributeString)
+    ) {
+        if !self.output.field_enabled(output_kind, field) {
+            return;
+        }
+
+        let mut attr_str = AttributeString::from(str);
+
+        if self.color {
+            color_fn(&mut attr_str);
+        }
+
+        row.push(attr_str);
+    }
+
+    /// Helper function to push `str` into `row` only if output for this column/field is enabled
+    ///
+    /// # Arguments
+    ///
+    /// * `row` - Row to append column value to
+    /// * `output_kind` - Kind of output (sections/segments/etc)
+    /// * `field` - Column/field bitmask
+    /// * `str` - Column value
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let table: Table = ...;
+    /// let mut row = Row::default();
+    ///
+    /// self.push_into_row(
+    ///     &mut row,
+    ///     Symbols, Name as u8,
+    ///     format!("{} ", sym.name).as_str()
+    /// );
+    ///
+    /// table.push_row(row).unwrap();
+    /// ```
+    fn push_into_row(
+        &self,
+        row: &mut Row,
+        output_kind: OutputKind,
+        field: u8,
+        str: &str
+    ) {
+        if !self.output.field_enabled(output_kind, field) {
+            return;
+        };
+
+        row.push(AttributeString::from(str));
+    }
+
+    /// Dump symbols into a table
     fn dump_symbols(&mut self) {
+        use OutputKind::*;
+        use SymbolTableFields::*;
+        
         if let Some(order) = &self.symbols_sorting_order {
             self.exe.sort_symbols(*order);
         }
@@ -513,86 +678,118 @@ impl Binsize {
             .filter(|s| { matches!(self.filter.captures(&s.name), Some(_)) })
             .fold(0, |r, s| r + s.size);
 
-        let mut table = Table::with_header_and_padding(
-            Row::from(["Size ", "Percentage ", "Symbol Kind ", "Crate Name ", "Symbol Name "]).map(|s| {
-                let mut s = s.clone();
-                if self.color {
-                    s.push_attr(Attribute::TextBold);
-                }
-                s
-            }),
-            &[Padding::Right, Padding::Right, Padding::Right, Padding::Right, Padding::Left]
+        let mut header = Row::default();
+        let mut paddings = Vec::new();
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Symbols, Size as u8,
+            "Size ", Padding::Right,
+            color_header_fn
         );
 
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Symbols, Percent as u8,
+            "Percentage ", Padding::Right,
+            color_header_fn
+        );
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Symbols, Kind as u8,
+            "Symbol Kind ", Padding::Right,
+            color_header_fn
+        );
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Symbols, Crate as u8,
+            "Crate Name ", Padding::Right,
+            color_header_fn
+        );
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Symbols, Name as u8,
+            "Symbol Name ", Padding::Left,
+            color_header_fn
+        );
+
+        let mut table = Table::with_header_and_padding(header, paddings.as_slice());
+
         for sym in &self.exe.symbols {
-            if sym.size != 0 {
-                if matches!(self.filter.captures(&sym.name), None) {
-                    continue;
-                }
-
-                let mut row = Row::default();
-
-                row.push({
-                    let mut s: AttributeString = format!("{} ", sym.size).into();
-
-                    if self.color {
-                        if sym.size >= self.size_threshold_red {
-                            s.push_attr(Attribute::ColorFgRed);
-                        } else if sym.size >= self.size_threshold_yellow {
-                            s.push_attr(Attribute::ColorFgYellow);
-                        } else {
-                            s.push_attr(Attribute::ColorFgGreen);
-                        }
-                    }
-
-                    s
-                });
-
-                row.push({
-                    let percentage = sym.size as f32 / (total as f32 / 100.0);
-                    let mut s: AttributeString = format!("{:.02}% ", percentage).into();
-
-                    if self.color {
-                        if percentage >= self.percentage_threshold_red {
-                            s.push_attr(Attribute::ColorFgRed);
-                        } else if percentage >= self.percentage_threshold_yellow {
-                            s.push_attr(Attribute::ColorFgYellow);
-                        } else {
-                            s.push_attr(Attribute::ColorFgGreen);
-                        }
-                    }
-
-                    s
-                });
-
-                row.push({
-                    let mut s: AttributeString = format!("{} ", sym.kind).into();
-
-                    if self.color {
-                        match sym.kind {
-                            SymbolKind::Function => s.push_attr(Attribute::ColorFgMagenta),
-                            SymbolKind::Data     => s.push_attr(Attribute::ColorFgCyan),
-                            SymbolKind::Unknown  => {},
-                        }
-                    }
-
-                    s
-                });
-
-                row.push(format!("{} ", sym.crate_name).into());
-
-                row.push({
-                    let mut s: AttributeString = format!("{} ", sym.name).into();
-
-                    if self.color {
-                        s.push_attr(Attribute::TextBold)
-                    }
-
-                    s
-                });
-
-                table.push_row(row).unwrap();
+            if sym.size == 0 {
+                continue;
             }
+
+            if matches!(self.filter.captures(&sym.name), Option::None) {
+                continue;
+            }
+
+            let mut row = Row::default();
+
+            self.push_into_row_color(
+                &mut row,
+                Symbols, Size as u8,
+                format!("{} ", sym.size).as_str(),
+                |s| {
+                    if sym.size >= self.size_threshold_red {
+                        s.push_attr(Attribute::ColorFgRed);
+                    } else if sym.size >= self.size_threshold_yellow {
+                        s.push_attr(Attribute::ColorFgYellow);
+                    } else {
+                        s.push_attr(Attribute::ColorFgGreen);
+                    }
+                }
+            );
+
+            let percentage = sym.size as f32 / (total as f32 / 100.0);
+
+            self.push_into_row_color(
+                &mut row,
+                Symbols, Percent as u8,
+                format!("{:.02}% ", percentage).as_str(),
+                |s| {
+                    if percentage >= self.percentage_threshold_red {
+                        s.push_attr(Attribute::ColorFgRed);
+                    } else if percentage >= self.percentage_threshold_yellow {
+                        s.push_attr(Attribute::ColorFgYellow);
+                    } else {
+                        s.push_attr(Attribute::ColorFgGreen);
+                    }
+                }
+            );
+
+            self.push_into_row_color(
+                &mut row,
+                Symbols, Kind as u8,
+                format!("{} ", sym.kind).as_str(),
+                |s| {
+                    match sym.kind {
+                        SymbolKind::Function => s.push_attr(Attribute::ColorFgMagenta),
+                        SymbolKind::Data     => s.push_attr(Attribute::ColorFgCyan),
+                        SymbolKind::Unknown  => {},
+                    }
+                }
+            );
+
+            self.push_into_row(
+                &mut row,
+                Symbols, Crate as u8,
+                format!("{} ", sym.crate_name).as_str()
+            );
+
+            self.push_into_row_color(
+                &mut row,
+                Symbols, Name as u8,
+                format!("{} ", sym.name).as_str(),
+                |s| {
+                    s.push_attr(Attribute::TextBold)
+                }
+            );
+
+            table.push_row(row).unwrap();
         }
 
         table.print();
@@ -609,8 +806,11 @@ impl Binsize {
         });
     }
 
-    /// Dump crate sizes
+    /// Dump crate sizes into a table
     fn dump_crates(&mut self) {
+        use OutputKind::*;
+        use CrateTableFields::*;
+
         println!();
 
         let mut crates = HashMap::new();
@@ -628,7 +828,7 @@ impl Binsize {
         if let Some(order) = self.symbols_sorting_order {
             crates.sort_by(|s1, s2|
                 if match order {
-                    SortOrder::Ascending => s1.1 < s2.1,
+                    SortOrder::Ascending  => s1.1 < s2.1,
                     SortOrder::Descending => s1.1 > s2.1
                 } {
                     core::cmp::Ordering::Less
@@ -638,131 +838,244 @@ impl Binsize {
             );
         }
 
-        let mut table = Table::with_header_and_padding(
-            Row::from(["Crate Name ", "Size "]).map(|s| {
-                let mut s = s.clone();
-                if self.color {
-                    s.push_attr(Attribute::TextBold);
-                }
-                s
-            }),
-            &[Padding::Left, Padding::Right],
+        let mut header = Row::default();
+        let mut paddings = Vec::new();
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Crates, Size as u8,
+            "Crate Name ", Padding::Left,
+            color_header_fn
         );
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Crates, Size as u8,
+            "Size ", Padding::Right,
+            color_header_fn
+        );
+
+        let mut table = Table::with_header_and_padding(header, paddings.as_slice());
 
         for (name, size) in crates {
-            table.push_row([
-                (*name).clone() + " ",
-                format!("{} ", size)
-            ].into()).unwrap();
-        }
+            let mut row = Row::default();
 
-        table.print();
-    }
-
-    /// Dump sections
-    fn dump_sections(&mut self) {
-        println!();
-
-        let mut table = Table::with_header_and_padding(
-            Row::from(["Name ", "Address ", "Size "]).map(|s| {
-                let mut s = s.clone();
-                if self.color {
-                    s.push_attr(Attribute::TextBold);
-                }
-                s
-            }),
-            &[Padding::Left, Padding::Left, Padding::Right],
-        );
-
-        for section in self.exe.sections.iter() {
-            table.push_row([
-                section.name.clone() + " ",
-                format!("0x{:08x} ", section.addr),
-                format!("{} ", section.size)
-            ].into()).unwrap();
-        }
-
-        table.print();
-    }
-
-    /// Dump segments, if `ld_file` is set
-    fn dump_segments(&mut self) {
-        if !self.ld_file.is_empty() {
-            println!();
-
-            let mut table = Table::with_header_and_padding(
-                Row::from(["Name ", "Address ", "Used ", "Size ", "Percentage "]).map(|s| {
-                    let mut s = s.clone();
-                    if self.color {
-                        s.push_attr(Attribute::TextBold);
-                    }
-                    s
-                }),
-                &[Padding::Left, Padding::Left, Padding::Right, Padding::Right, Padding::Right],
+            self.push_into_row(
+                &mut row,
+                Crates, Name as u8,
+                ((*name).clone() + " ").as_str()
             );
 
-            // TODO: Shouldn't clone() ld_file
-            let mut regions = link::MemoryRegion::from_file(&self.ld_file.clone().into()).unwrap();
-
-            link::MemoryRegion::use_segments_data(&mut regions, &self.exe.segments);
-
-            for reg in regions.iter_mut() {
-                let mut row = Row::default();
-
-                row.push((reg.name.clone() + " ").into());
-                row.push(format!("0x{:08x} ", reg.origin).into());
-                row.push(format!("{} ", reg.used).into());
-                row.push(format!("{} ", reg.length).into());
-                row.push((format!("{:.02}% ", reg.used_percentage), {
-                    if self.color {
-                        if reg.used_percentage > 75.0 {
-                            &[Attribute::ColorFgRed]
-                        } else if reg.used_percentage > 50.0 {
-                            &[Attribute::ColorFgYellow]
-                        } else {
-                            &[Attribute::ColorFgGreen]
-                        }
-                    } else {
-                        &[Attribute::TextReset]
-                    }
-                }).into());
-
-                table.push_row(row).unwrap()
-            }
-
-            table.print();
+            self.push_into_row(
+                &mut row,
+                Crates, Size as u8,
+                format!("{} ", size).as_str()
+            );
+            
+            table.push_row(row).unwrap();
         }
+
+        table.print();
+    }
+
+    /// Dump sections into a table
+    fn dump_sections(&mut self) {
+        use OutputKind::*;
+        use SectionTableFields::*;
+
+        println!();
+
+        let mut header = Row::default();
+        let mut paddings = Vec::new();
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Sections, Name as u8,
+            "Name ", Padding::Left,
+            color_header_fn
+        );
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Sections, Addr as u8,
+            "Address ", Padding::Left,
+            color_header_fn
+        );
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Sections, Size as u8,
+            "Size ", Padding::Right,
+            color_header_fn
+        );
+
+        let mut table = Table::with_header_and_padding(header, paddings.as_slice());
+
+        for section in self.exe.sections.iter() {
+            let mut row = Row::default();
+
+            self.push_into_row(
+                &mut row,
+                Sections, Name as u8,
+                (section.name.clone() + " ").as_str()
+            );
+
+            self.push_into_row(
+                &mut row,
+                Sections, Addr as u8,
+                format!("0x{:08x} ", section.addr).as_str()
+            );
+
+            self.push_into_row(
+                &mut row,
+                Sections, Size as u8,
+                format!("{} ", section.size).as_str()
+            );
+
+            table.push_row(row).unwrap();
+        }
+
+        table.print();
+    }
+
+    /// Dump segments into a table, if `ld_file` is set
+    fn dump_segments(&mut self) {
+        use OutputKind::*;
+        use SegmentTableFields::*;
+        
+        if self.ld_file.is_empty() {
+            return;
+        }
+
+        println!();
+
+        let mut header = Row::default();
+        let mut paddings = Vec::new();
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Segments, Name as u8,
+            "Name ", Padding::Left,
+            color_header_fn
+        );
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Segments, Addr as u8,
+            "Address ", Padding::Left,
+            color_header_fn
+        );
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Segments, Used as u8,
+            "Used ", Padding::Right,
+            color_header_fn
+        );
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Segments, Size as u8,
+            "Size ", Padding::Right,
+            color_header_fn
+        );
+
+        self.push_into_header_and_padding_color(
+            &mut header, &mut paddings,
+            Segments, Percent as u8,
+            "Percentage ", Padding::Right,
+            color_header_fn
+        );
+
+        let mut table = Table::with_header_and_padding(header, paddings.as_slice());
+
+        // TODO: Shouldn't clone() ld_file
+        let mut regions = link::MemoryRegion::from_file(&self.ld_file.clone().into()).unwrap();
+
+        link::MemoryRegion::use_segments_data(&mut regions, &self.exe.segments);
+
+        for reg in regions.iter_mut() {
+            let mut row = Row::default();
+
+            self.push_into_row(
+                &mut row,
+                Segments, Name as u8,
+                (reg.name.clone() + " ").as_str()
+            );
+
+            self.push_into_row(
+                &mut row,
+                Segments, Addr as u8,
+                format!("0x{:08x} ", reg.origin).as_str()
+            );
+
+            self.push_into_row(
+                &mut row,
+                Segments, Used as u8,
+                format!("{} ", reg.used).as_str()
+            );
+
+            self.push_into_row(
+                &mut row,
+                Segments, Size as u8,
+                format!("{} ", reg.length).as_str()
+            );
+
+            self.push_into_row_color(
+                &mut row,
+                Segments, Percent as u8,
+                format!("{:.02}% ", reg.used_percentage).as_str(),
+                |s| {
+                    if reg.used_percentage > 75.0 {
+                        s.push_attr(Attribute::ColorFgRed);
+                    } else if reg.used_percentage > 50.0 {
+                        s.push_attr(Attribute::ColorFgYellow);
+                    } else {
+                        s.push_attr(Attribute::ColorFgGreen);
+                    }
+                }
+            );
+
+            table.push_row(row).unwrap()
+        }
+
+        table.print();
     }
 
     /// Run whole application
+    /// Will parse cmdline arguments, config, and output all configured tables
+    ///
+    /// # Example
+    /// ```
+    /// Binsize::new().run();
+    /// ```
     fn run(&mut self) {
         self.parse_config();
         self.parse_args();
 
-        if self.output == Output::None as u8 {
-            self.output = Output::Symbols as u8;
+        if !self.output.any_enabled() {
+            self.output.enable(OutputKind::Symbols);
         }
 
         self.load_exe();
 
-        if self.output & Output::Symbols as u8 > 0 {
+        if self.output.enabled(OutputKind::Symbols) {
             self.dump_symbols();
         }
 
-        if self.output & Output::Crates as u8 > 0 {
+        if self.output.enabled(OutputKind::Crates) {
             self.dump_crates();
         }
 
-        if self.output & Output::Sections as u8 > 0 {
+        if self.output.enabled(OutputKind::Sections) {
             self.dump_sections();
         }
 
-        if self.output & Output::Segments as u8 > 0 {
+        if self.output.enabled(OutputKind::Segments) {
             self.dump_segments();
         }
     }
 }
-
 
 fn main() {
     Binsize::new().run();
