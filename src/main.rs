@@ -213,6 +213,9 @@ struct Binsize {
     /// Colorful output toggle
     color: bool,
 
+    /// Max rows to output in tables. 0 - no limit
+    max_rows: usize,
+
     /// Sorting order of symbols
     symbols_sorting_order: Option<SortOrder>,
 
@@ -246,6 +249,7 @@ impl Default for Binsize {
             ld_file:                     "".to_string(),
             file:                        "".to_string(),
             color:                       false,
+            max_rows:                    0,
             output:                      Output::new(),
             exe:                         Default::default(),
             artifacts:                   Vec::default(),
@@ -319,6 +323,10 @@ impl Binsize {
                         panic!("Invalid value for key 'sort': '{} (possible values: asc, desc)'", val);
                     }
                 }
+            }
+
+            if let Some(toml::Value::Integer(val)) = binsize.get("max-rows") {
+                self.max_rows = *val as usize;
             }
 
             if let Some(toml::Value::Array(val)) = binsize.get("size-threshold") {
@@ -411,6 +419,12 @@ impl Binsize {
                     "Add coloring to output"
                 ),
                 args::Argument::new_value(
+                    "max-rows",
+                    &["-n", "--max-rows"],
+                    &["ROWS"],
+                    "Max rows to output. Shared between all tables"
+                ),
+                args::Argument::new_value(
                     "size-threshold",
                     &["--size-threshold"],
                     &["YELLOW", "RED"],
@@ -484,6 +498,12 @@ impl Binsize {
                 }
                 "color" => {
                     self.color = true;
+                }
+                "max-rows" => {
+                    self.max_rows = arg.values.get(0)
+                        .expect("Missing value ROWS for --max-rows")
+                        .parse::<usize>()
+                        .expect("max rows must be a number");
                 }
                 "size-threshold" => {
                     self.size_threshold_yellow = arg.values.get(0)
@@ -771,6 +791,8 @@ impl Binsize {
 
         let mut table = Table::with_header_and_padding(header, paddings.as_slice());
 
+        table.set_max_rows(self.max_rows);
+
         for sym in &self.exe.symbols {
             if sym.size == 0 {
                 continue;
@@ -957,6 +979,8 @@ impl Binsize {
 
         let mut table = Table::with_header_and_padding(header, paddings.as_slice());
 
+        table.set_max_rows(self.max_rows);
+
         for (name, size) in crates {
             let mut row = Row::default();
 
@@ -1010,6 +1034,8 @@ impl Binsize {
         );
 
         let mut table = Table::with_header_and_padding(header, paddings.as_slice());
+
+        table.set_max_rows(self.max_rows);
 
         for section in self.exe.sections.iter() {
             let mut row = Row::default();
@@ -1088,6 +1114,8 @@ impl Binsize {
         );
 
         let mut table = Table::with_header_and_padding(header, paddings.as_slice());
+
+        table.set_max_rows(self.max_rows);
 
         // TODO: Shouldn't clone() ld_file
         let mut regions = link::MemoryRegion::from_file(&self.ld_file.clone().into())

@@ -117,19 +117,23 @@ pub struct Table {
     /// Maximal width of each column, updated on push
     widths: Vec<usize>,
 
-    /// Max width of single column value. If 0 - will be initialized from `util::term_width()`
+    /// Max width of single row. If 0 - will be initialized from `util::term_width()`
     max_width: usize,
+
+    /// Max rows to output
+    max_rows: usize,
 }
 
 impl Table {
     /// Creates new table
-    pub fn new(header: Row, padding: &[Padding], rows: &[Row], max_width: usize) -> Self {
+    pub fn new(header: Row, padding: &[Padding], rows: &[Row], max_width: usize, max_rows: usize) -> Self {
         let mut table = Self {
             header,
-            padding: padding.to_vec(),
-            rows: vec![],
-            widths: vec![],
-            max_width: if max_width == 0 { util::term_width() } else { max_width }
+            padding:   padding.to_vec(),
+            rows:      vec![],
+            widths:    vec![],
+            max_width: if max_width == 0 { util::term_width() } else { max_width },
+            max_rows:  if max_rows == 0 { usize::MAX } else { max_rows }
         };
 
         // Total size of header row in symbols
@@ -162,12 +166,12 @@ impl Table {
 
     /// Creates new table, given only the header
     pub fn with_header(header: Row) -> Self {
-        Self::new(header, &[], &[], 0)
+        Self::new(header, &[], &[], 0, 0)
     }
 
     /// Creates new table, given only the header and padding for each column
     pub fn with_header_and_padding(header: Row, padding: &[Padding]) -> Self {
-        Self::new(header, padding, &[], 0)
+        Self::new(header, padding, &[], 0, 0)
     }
 
     /// Creates new table with empty header, from number of columns
@@ -188,6 +192,11 @@ impl Table {
         table.padding = padding;
 
         table
+    }
+
+    /// Set `max_rows` value
+    pub fn set_max_rows(&mut self, max_rows: usize) {
+        self.max_rows = if max_rows == 0 { usize::MAX } else { max_rows };
     }
 
     /// Checks that row has same number of elements as the header
@@ -340,7 +349,11 @@ impl Table {
         // For example in `ArgumentParser::print_help()`
         self.print_row(&self.header.values, true);
 
-        for row in self.rows.iter() {
+        for (i, row) in self.rows.iter().enumerate() {
+            if i > self.max_rows {
+                break;
+            }
+
             self.print_row(&row.values, false);
         }
     }
