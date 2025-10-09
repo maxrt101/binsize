@@ -189,18 +189,7 @@ pub struct Output {
 impl Output {
     /// Create empty output
     pub fn new() -> Self {
-        let mut out = Self {
-            // By default, disallow all output
-            outputs: OutputKind::None as u8,
-            fields:  HashMap::new(),
-        };
-
-        // By default, allow all columns to be printed
-        for kind in OutputKind::all() {
-            out.fields.insert(kind, 0xFF);
-        }
-
-        out
+        Default::default()
     }
 
     /// Enable an output for table denoted with `kind`
@@ -302,5 +291,22 @@ impl Output {
                 *mask = !field_mask;
             }
         }
+    }
+}
+
+impl Default for Output {
+    fn default() -> Self {
+        let mut out = Self {
+            // By default, disallow all output
+            outputs: OutputKind::None as u8,
+            fields:  HashMap::new(),
+        };
+
+        // By default, allow all columns to be printed
+        for kind in OutputKind::all() {
+            out.fields.insert(kind, 0xFF);
+        }
+
+        out
     }
 }
