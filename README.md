@@ -160,4 +160,7 @@ size-threshold = [5000, 10000]
 percentage-threshold = [0.5, 1.0]
 ```
 
+Config loads automatically if `./.cargo/binsize.toml` is present. If you wish to skip config
+loading, use `-i`/`--ignore-config` cmdline option.  
+
 Note: command line arguments will override config values  
