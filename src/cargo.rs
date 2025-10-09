@@ -7,6 +7,8 @@
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::process::Command;
+use std::collections::HashSet;
+use std::error::Error;
 
 /// Represents build options passed to `cargo build`
 /// TODO: Add an ability to pass any option
@@ -74,15 +76,41 @@ impl TryFrom<&str> for BuildArtifactKind {
 
 /// Represents information about a build artifact
 pub struct BuildArtifact {
-    pub kind: BuildArtifactKind,
-    pub name: String,
-    pub path: PathBuf
+    pub kind:    BuildArtifactKind,
+    pub name:    String,
+    pub path:    PathBuf,
+    pub symbols: HashSet<String>,
 }
 
 impl BuildArtifact {
-    /// Creates new `BuildArtifact`
+    /// Creates new `BuildArtifact` without symbols
     pub fn new(kind: BuildArtifactKind, name: String, path: PathBuf) -> Self {
-        Self { kind, name, path }
+        let mut artifact = Self { kind, name, path, symbols: HashSet::new() };
+
+        // Parse symbols only for library artifacts
+        if artifact.is_lib() {
+            if let Err(e) = artifact.resolve_symbols() {
+                println!("Error: '{}' while parsing '{}' ({:?})", e, artifact.name, artifact.path);
+            }
+        }
+
+        artifact
+    }
+
+    /// Returns `true` is artifact is a library
+    fn is_lib(&self) -> bool {
+        self.kind == BuildArtifactKind::Library || self.kind == BuildArtifactKind::DynamicLibrary
+    }
+
+    /// Resolve symbols by parsing artifact file
+    fn resolve_symbols(&mut self) -> Result<(), Box<dyn Error>> {
+        let exe = crate::exe::parse_archive(&self.path)?;
+
+        for sym in exe.symbols {
+            self.symbols.insert(sym.name);
+        }
+
+        Ok(())
     }
 }
 
@@ -163,4 +191,15 @@ pub fn artifacts(mut opt: BuildOptions) -> Vec<BuildArtifact> {
     }
 
     artifacts
+}
+
+/// Try to find crate for symbol in a Vec of artifacts
+pub fn try_find_crate(artifacts: &Vec<BuildArtifact>, symbol: &str) -> Option<String> {
+    for artifact in artifacts.iter().filter(|a| a.is_lib()) {
+        if artifact.symbols.contains(symbol) {
+            return Some(artifact.name.clone());
+        }
+    }
+
+    None
 }

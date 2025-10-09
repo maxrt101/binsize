@@ -6,6 +6,7 @@
 
 use object::{File, Object, ObjectSection, ObjectSegment, ObjectSymbol};
 use std::fmt::{Display, Formatter};
+use crate::cargo::BuildArtifact;
 use crate::util::SortOrder;
 use crate::demangle::{DemangledSymbolKind, demangle, crate_name_from_demangled};
 
@@ -45,6 +46,12 @@ pub struct Symbol {
     pub kind: SymbolKind,
 
     // TODO: Maybe add definition location (requires dwarf parsing most likely)
+}
+
+impl Symbol {
+    pub fn filter(&self, re: &regex::Regex) -> bool {
+        matches!(re.captures(&self.name), Some(_)) || matches!(re.captures(&self.crate_name), Some(_))
+    }
 }
 
 /// Represents a section in an executable (`.text`/`.data`/etc.)
@@ -99,6 +106,40 @@ impl Default for ExecutableInfo {
             segments: Vec::new(),
         }
     }
+}
+
+/// Parse an archive (rlib)
+pub fn parse_archive(path: &std::path::Path) -> Result<ExecutableInfo, Box<dyn std::error::Error>> {
+    let file = std::fs::File::open(&path)?;
+    let data = unsafe { memmap2::Mmap::map(&file)? };
+
+    let exe = object::read::archive::ArchiveFile::parse(&*data)?;
+
+    let symbols = exe.symbols()?
+        .ok_or_else(||
+            Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to parse symbols from archive"))
+        )?;
+
+    let symbols = symbols
+        .filter(|s| s.is_ok())
+        .map(|s| s.unwrap())
+        .map(
+            |s| {
+                let demangled = demangle(String::from_utf8_lossy(s.name()).to_string().as_str());
+
+                Symbol {
+                    name:       demangled.name,
+                    crate_name: "".to_string(),
+                    size:       0,
+                    addr:       0,
+                    kind:       SymbolKind::Unknown,
+                }
+            }
+        )
+        .collect::<Vec<_>>();
+
+    Ok(ExecutableInfo { symbols, segments: vec![], sections: vec![] })
+
 }
 
 /// Parses an executable
@@ -182,5 +223,18 @@ pub fn parse(path: &std::path::Path) -> Result<ExecutableInfo, Box<dyn std::erro
     }
 
     Ok(ExecutableInfo { segments, sections, symbols })
+}
+
+/// Try to find a crate name by symbol name in artifacts, if symbol has no crate
+pub fn patch_missing_crate_names(exe: &mut ExecutableInfo, artifacts: &Vec<BuildArtifact>) {
+    for sym in exe.symbols.iter_mut() {
+        let crate_name_from_artifact = crate::cargo::try_find_crate(artifacts, &sym.name);
+
+        if let Some(crate_name_from_artifact) = crate_name_from_artifact {
+            if sym.crate_name == "?" {
+                sym.crate_name = crate_name_from_artifact;
+            }
+        }
+    }
 }
 
