@@ -158,7 +158,7 @@
 
 use std::collections::HashMap;
 use crate::util::SortOrder;
-use crate::cargo::BuildOptions;
+use crate::cargo::{BuildArtifact, BuildOptions};
 use crate::table::{Padding, Row, Table};
 use crate::exe::{ExecutableInfo, SymbolKind};
 use crate::attr_str::{Attribute, AttributeString};
@@ -189,7 +189,7 @@ const CONFIG: &str = ".cargo/binsize.toml";
 
 
 /// Helper function for applying styling to column headers
-fn color_header_fn(s: &mut AttributeString) {
+fn attr_apply_bold(s: &mut AttributeString) {
     s.push_attr(Attribute::TextBold);
 }
 
@@ -228,13 +228,15 @@ struct Binsize {
     /// Output control context
     output: Output,
 
+    /// Build atrifacts
+    artifacts: Vec<BuildArtifact>,
+
     /// Executable info
     exe: ExecutableInfo,
 }
 
-impl Binsize {
-    /// Create new `binsize` application
-    fn new() -> Self {
+impl Default for Binsize {
+    fn default() -> Self {
         Self {
             build_options:               Default::default(),
             filter:                      regex::Regex::new(".+").unwrap(),
@@ -243,12 +245,20 @@ impl Binsize {
             color:                       false,
             output:                      Output::new(),
             exe:                         Default::default(),
+            artifacts:                   Vec::default(),
             symbols_sorting_order:       None,
             size_threshold_yellow:       200,
             size_threshold_red:          500,
             percentage_threshold_yellow: 0.5,
             percentage_threshold_red:    1.0,
         }
+    }
+}
+
+impl Binsize {
+    /// Create new `binsize` application
+    fn new() -> Self {
+        Default::default()
     }
 
     /// Parse config in `.cargo/binsize.toml`, if available
@@ -409,6 +419,11 @@ impl Binsize {
                     &["YELLOW", "RED"],
                     "Yellow & red size percentage thresholds (default 0.5 1.0)"
                 ),
+                args::Argument::new_flag(
+                    "ignore-config",
+                    &["-i", "--ignore-config"],
+                    "Ignore config file"
+                ),
             ],
             args::UnexpectedArgumentPolicy::Crash
         );
@@ -489,6 +504,9 @@ impl Binsize {
                         .parse::<f32>()
                         .expect("red threshold must be a float");
                 }
+                "ignore-config" => {
+                    *self = Default::default();
+                }
                 arg => {
                     panic!("Unexpected argument: {}", arg);
                 }
@@ -510,11 +528,11 @@ impl Binsize {
 
             // Run `cargo built --message-format=json` to gather info about artifacts produced
             // by build
-            let artifacts = cargo::artifacts(self.build_options.clone());
+            self.artifacts = cargo::artifacts(self.build_options.clone());
 
             // Last artifact should be a `top crate` - executable or a library, for which
             // a binary would be generated
-            let top_crate = artifacts.last()
+            let top_crate = self.artifacts.last()
                 .expect("No top crate");
 
             // Extract path to binary
@@ -524,6 +542,22 @@ impl Binsize {
         // Parse binary
         self.exe = exe::parse(&path)
             .expect("Failed to parse executable");
+
+        // Patch missing crate names (marked "?"), by using parsed build artifacts
+        if !self.artifacts.is_empty() {
+            exe::patch_missing_crate_names(&mut self.exe, &self.artifacts);
+        }
+    }
+
+    /// Helper function to crate a colored attribute string, if color is enabled
+    fn colored_str(&self, str: String, color_fn: impl Fn(&mut AttributeString)) -> AttributeString {
+        let mut attr_str = AttributeString::from(str.as_str());
+
+        if self.color {
+            color_fn(&mut attr_str);
+        }
+
+        attr_str
     }
 
     /// Helper function to push `str` into `header` and `padding` into `paddings`, only if output
@@ -691,7 +725,7 @@ impl Binsize {
         }
 
         let total = self.exe.symbols.iter()
-            .filter(|s| { matches!(self.filter.captures(&s.name), Some(_)) })
+            .filter(|s| s.filter(&self.filter))
             .fold(0, |r, s| r + s.size);
 
         let mut header = Row::default();
@@ -701,35 +735,35 @@ impl Binsize {
             &mut header, &mut paddings,
             Symbols, Size as u8,
             "Size ", Padding::Right,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Symbols, Percent as u8,
             "Percentage ", Padding::Right,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Symbols, Kind as u8,
             "Symbol Kind ", Padding::Right,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Symbols, Crate as u8,
             "Crate Name ", Padding::Right,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Symbols, Name as u8,
             "Symbol Name ", Padding::Left,
-            color_header_fn
+            attr_apply_bold
         );
 
         let mut table = Table::with_header_and_padding(header, paddings.as_slice());
@@ -739,7 +773,7 @@ impl Binsize {
                 continue;
             }
 
-            if matches!(self.filter.captures(&sym.name), Option::None) {
+            if !sym.filter(&self.filter) {
                 continue;
             }
 
@@ -811,15 +845,62 @@ impl Binsize {
         table.print();
 
         println!();
-        println!("Total: {}", {
-            let mut s = AttributeString::from(format!("{}", total).as_str());
 
-            if self.color {
-                s.push_attr(Attribute::TextBold);
+        let mut fn_count = 0;
+        let mut fn_total = 0;
+
+        let mut data_count = 0;
+        let mut data_total = 0;
+
+        for sym in &self.exe.symbols {
+            match sym.kind {
+                SymbolKind::Function => {
+                    fn_count += 1;
+                    fn_total += sym.size;
+                }
+                SymbolKind::Data => {
+                    data_count += 1;
+                    data_total += sym.size;
+                }
+                _ => {}
             }
+        }
 
-            s
-        });
+        let mut totals_table = Table::with_empty_header_and_padding(vec![
+            Padding::Left, Padding::Right, Padding::Left, Padding::Right, Padding::Right,
+        ]);
+
+        let mut row = Row::default();
+
+        row.push("Functions: ".into());
+        row.push(self.colored_str(format!("{} ", fn_count), attr_apply_bold));
+        row.push("symbols, ".into());
+        row.push(self.colored_str(format!("{} ", fn_total), attr_apply_bold));
+        row.push("bytes".into());
+
+        totals_table.push_row(row).unwrap();
+
+        row = Row::default();
+
+        row.push("Data: ".into());
+        row.push(self.colored_str(format!("{} ", data_count), attr_apply_bold));
+        row.push("symbols, ".into());
+        row.push(self.colored_str(format!("{} ", data_total), attr_apply_bold));
+        row.push("bytes".into());
+
+        totals_table.push_row(row).unwrap();
+
+        row = Row::default();
+
+        row.push("Total: ".into());
+        row.push(self.colored_str(format!("{} ", self.exe.symbols.len()), attr_apply_bold));
+        row.push("symbols, ".into());
+        row.push(self.colored_str(format!("{} ", total), attr_apply_bold));
+        row.push("bytes".into());
+
+        totals_table.push_row(row).unwrap();
+
+        totals_table.print();
     }
 
     /// Dump crate sizes into a table
@@ -861,14 +942,14 @@ impl Binsize {
             &mut header, &mut paddings,
             Crates, Size as u8,
             "Crate Name ", Padding::Left,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Crates, Size as u8,
             "Size ", Padding::Right,
-            color_header_fn
+            attr_apply_bold
         );
 
         let mut table = Table::with_header_and_padding(header, paddings.as_slice());
@@ -908,21 +989,21 @@ impl Binsize {
             &mut header, &mut paddings,
             Sections, Name as u8,
             "Name ", Padding::Left,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Sections, Addr as u8,
             "Address ", Padding::Left,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Sections, Size as u8,
             "Size ", Padding::Right,
-            color_header_fn
+            attr_apply_bold
         );
 
         let mut table = Table::with_header_and_padding(header, paddings.as_slice());
@@ -972,35 +1053,35 @@ impl Binsize {
             &mut header, &mut paddings,
             Segments, Name as u8,
             "Name ", Padding::Left,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Segments, Addr as u8,
             "Address ", Padding::Left,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Segments, Used as u8,
             "Used ", Padding::Right,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Segments, Size as u8,
             "Size ", Padding::Right,
-            color_header_fn
+            attr_apply_bold
         );
 
         self.push_into_header_and_padding_color(
             &mut header, &mut paddings,
             Segments, Percent as u8,
             "Percentage ", Padding::Right,
-            color_header_fn
+            attr_apply_bold
         );
 
         let mut table = Table::with_header_and_padding(header, paddings.as_slice());
